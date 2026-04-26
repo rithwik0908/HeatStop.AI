@@ -76,6 +76,26 @@ DATA_SOURCES = [
         notes="Official National Weather Service forecast grid. Used to compute corridor-wide near-term heat burden.",
     ),
     DataSource(
+        name="MTA Bus Time / SIRI StopMonitoring",
+        category="Real-time bus arrivals",
+        source_url="https://bustime.mta.info/wiki/Developers/SIRIStopMonitoring",
+        local_file="live_api_call",
+        fields_used=[
+            "Siri.ServiceDelivery.StopMonitoringDelivery.MonitoredStopVisit.MonitoredVehicleJourney.PublishedLineName",
+            "Siri.ServiceDelivery.StopMonitoringDelivery.MonitoredStopVisit.MonitoredVehicleJourney.DestinationName",
+            "Siri.ServiceDelivery.StopMonitoringDelivery.MonitoredStopVisit.MonitoredVehicleJourney.MonitoredCall.ExpectedArrivalTime",
+        ],
+        notes="Official MTA Bus Time SIRI stop monitoring feed. Used for rider-facing live arrival timing at the selected stop.",
+    ),
+    DataSource(
+        name="OpenStreetMap / Overpass API",
+        category="Nearby relief places",
+        source_url="https://overpass-api.de/",
+        local_file="live_api_call",
+        fields_used=["amenity", "leisure", "name", "lat", "lon", "center.*"],
+        notes="Free OSM POI lookup used to find nearby indoor, shaded, restroom, and water-access waiting options for riders.",
+    ),
+    DataSource(
         name="Local stop imagery",
         category="Optional image analysis",
         source_url="local_folder",
