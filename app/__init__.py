@@ -1,0 +1,1 @@
+"""HeatStop AI application package."""

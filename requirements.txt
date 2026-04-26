@@ -1,0 +1,15 @@
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+streamlit==1.44.1
+streamlit-folium==0.25.0
+pandas==2.2.3
+geopandas==1.0.1
+shapely==2.0.7
+requests==2.32.3
+numpy==2.2.5
+opencv-python-headless==4.11.0.86
+scikit-learn==1.6.1
+folium==0.19.5
+pyogrio==0.10.0
+protobuf<6
+transformers==4.51.3

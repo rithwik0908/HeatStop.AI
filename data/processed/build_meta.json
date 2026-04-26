@@ -1,0 +1,144 @@
+{
+  "generated_at": "2026-04-24T15:32:33.346347-04:00",
+  "corridor_id": "m23_sbs__dir_0",
+  "corridor_name": "New York City M23-SBS direction 0",
+  "city_name": "New York City",
+  "route_short_name": "M23-SBS",
+  "direction_id": 0,
+  "stop_limit": 15,
+  "stop_count": 15,
+  "service_date": "2026-04-24",
+  "headway_window": [
+    "12:00:00",
+    "18:00:00"
+  ],
+  "score_weights": {
+    "no_shelter": 0.35,
+    "low_tree_cover": 0.25,
+    "heat_burden": 0.15,
+    "wait_burden": 0.15,
+    "no_bench": 0.1
+  },
+  "sources": [
+    {
+      "name": "MTA Manhattan GTFS",
+      "category": "Transit schedule and stop locations",
+      "source_url": "http://web.mta.info/developers/data/nyct/bus/google_transit_manhattan.zip",
+      "local_file": "data/raw/google_transit_manhattan.zip",
+      "fields_used": [
+        "routes.route_id",
+        "routes.route_short_name",
+        "trips.trip_id",
+        "trips.direction_id",
+        "stop_times.stop_id",
+        "stop_times.stop_sequence",
+        "stop_times.departure_time",
+        "stops.stop_name",
+        "stops.stop_lat",
+        "stops.stop_lon",
+        "calendar.*",
+        "calendar_dates.*"
+      ],
+      "notes": "Official MTA Manhattan bus GTFS feed. Used to identify corridor stops and scheduled wait burden."
+    },
+    {
+      "name": "NYC DOT Bus Stop Shelters",
+      "category": "Stop amenity",
+      "source_url": "https://data.cityofnewyork.us/api/views/t4f2-8md7/rows.csv?accessType=DOWNLOAD",
+      "local_file": "data/raw/nyc_bus_stop_shelters.csv",
+      "fields_used": [
+        "Shelter_ID",
+        "On_Street",
+        "Cross_Stre",
+        "Longitude",
+        "Latitude"
+      ],
+      "notes": "Official NYC DOT shelter inventory. Spatially joined to route stops to infer shelter presence."
+    },
+    {
+      "name": "NYC DOT Seating Locations",
+      "category": "Street furniture / seating proxy",
+      "source_url": "https://data.cityofnewyork.us/resource/esmy-s8q5.csv",
+      "local_file": "data/raw/nyc_seating_locations.csv",
+      "fields_used": [
+        "asset_subtype",
+        "latitude",
+        "longitude",
+        "siteid"
+      ],
+      "notes": "Official NYC DOT seating inventory. Spatially joined to route stops as a nearby seating proxy."
+    },
+    {
+      "name": "NYC Street Tree Census",
+      "category": "Tree cover proxy",
+      "source_url": "https://data.cityofnewyork.us/resource/uvpi-gqnh.csv",
+      "local_file": "data/raw/nyc_street_trees_{route}_{direction}.csv",
+      "fields_used": [
+        "tree_id",
+        "latitude",
+        "longitude",
+        "tree_dbh",
+        "spc_common",
+        "health"
+      ],
+      "notes": "Official tree inventory. Queried only within the corridor bounding box and buffered around stops."
+    },
+    {
+      "name": "NWS / NOAA Gridpoint Forecast",
+      "category": "Heat burden",
+      "source_url": "https://api.weather.gov/points/{lat},{lon}",
+      "local_file": "live_api_call",
+      "fields_used": [
+        "heatIndex.values",
+        "apparentTemperature.values",
+        "temperature.values"
+      ],
+      "notes": "Official National Weather Service forecast grid. Used to compute corridor-wide near-term heat burden."
+    },
+    {
+      "name": "Local stop imagery",
+      "category": "Optional image analysis",
+      "source_url": "local_folder",
+      "local_file": "data/raw/stop_images/",
+      "fields_used": [
+        "real image pixels only"
+      ],
+      "notes": "User-supplied real stop images. If missing, image-derived features remain null and the UI shows image unavailable."
+    },
+    {
+      "name": "Mapillary street-level imagery",
+      "category": "Optional public imagery",
+      "source_url": "https://www.mapillary.com/developer/api-documentation/",
+      "local_file": "data/raw/stop_images/mapillary_<stop_id>.jpg",
+      "fields_used": [
+        "captured_at",
+        "thumb_1024_url",
+        "computed_geometry",
+        "creator.username"
+      ],
+      "notes": "Optional stop-area street imagery used when no local image is present. The MVP uses the latest nearby image and displays attribution."
+    }
+  ],
+  "manual_inputs": [
+    {
+      "item": "Real bus stop images",
+      "path": "data/raw/stop_images/",
+      "required_for": "Image-based shelter/tree/openness heuristics",
+      "instruction": "Add real JPG/PNG files named `<stop_id>.jpg` or provide `manifest.csv` with `stop_id,file_name,source_url`."
+    }
+  ],
+  "weather": {
+    "label": "Near-term corridor heat snapshot (\u00b0F)",
+    "metric_used": "apparentTemperature",
+    "metric_display": "Feels-like temperature",
+    "value_f": 63.0,
+    "heat_burden_score": 0.0,
+    "source_label": "NWS / weather.gov",
+    "source_url": "https://api.weather.gov/gridpoints/OKX/34,43",
+    "point_url": "https://api.weather.gov/points/40.74225,-73.991815",
+    "updated_at": "2026-04-24T11:02:02+00:00",
+    "refreshed_at": "2026-04-24T15:32:04.219193-04:00",
+    "horizon_hours": 8,
+    "summary": "Feels-like temperature forecast used for the next 8 hours"
+  }
+}

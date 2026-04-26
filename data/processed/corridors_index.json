@@ -1,0 +1,78 @@
+{
+  "generated_at": "2026-04-24T15:32:33.352901-04:00",
+  "default_corridor_id": "m15__dir_0",
+  "corridors": [
+    {
+      "corridor_id": "m101__dir_0",
+      "label": "New York City M101 direction 0",
+      "route_short_name": "M101",
+      "direction_id": 0,
+      "service_date": "2026-04-24",
+      "stop_count": 15,
+      "generated_at": "2026-04-24T15:30:35.449740-04:00"
+    },
+    {
+      "corridor_id": "m102__dir_0",
+      "label": "New York City M102 direction 0",
+      "route_short_name": "M102",
+      "direction_id": 0,
+      "service_date": "2026-04-24",
+      "stop_count": 15,
+      "generated_at": "2026-04-24T15:30:51.558734-04:00"
+    },
+    {
+      "corridor_id": "m103__dir_0",
+      "label": "New York City M103 direction 0",
+      "route_short_name": "M103",
+      "direction_id": 0,
+      "service_date": "2026-04-24",
+      "stop_count": 15,
+      "generated_at": "2026-04-24T15:31:15.023500-04:00"
+    },
+    {
+      "corridor_id": "m14a_sbs__dir_0",
+      "label": "New York City M14A-SBS direction 0",
+      "route_short_name": "M14A-SBS",
+      "direction_id": 0,
+      "service_date": "2026-04-24",
+      "stop_count": 15,
+      "generated_at": "2026-04-24T15:31:42.065675-04:00"
+    },
+    {
+      "corridor_id": "m14d_sbs__dir_0",
+      "label": "New York City M14D-SBS direction 0",
+      "route_short_name": "M14D-SBS",
+      "direction_id": 0,
+      "service_date": "2026-04-24",
+      "stop_count": 15,
+      "generated_at": "2026-04-24T15:32:01.901987-04:00"
+    },
+    {
+      "corridor_id": "m15__dir_0",
+      "label": "New York City M15 direction 0",
+      "route_short_name": "M15",
+      "direction_id": 0,
+      "service_date": "2026-04-24",
+      "stop_count": 15,
+      "generated_at": "2026-04-24T15:29:58.526217-04:00"
+    },
+    {
+      "corridor_id": "m15_sbs__dir_0",
+      "label": "New York City M15-SBS direction 0",
+      "route_short_name": "M15-SBS",
+      "direction_id": 0,
+      "service_date": "2026-04-24",
+      "stop_count": 15,
+      "generated_at": "2026-04-24T15:30:16.877483-04:00"
+    },
+    {
+      "corridor_id": "m23_sbs__dir_0",
+      "label": "New York City M23-SBS direction 0",
+      "route_short_name": "M23-SBS",
+      "direction_id": 0,
+      "service_date": "2026-04-24",
+      "stop_count": 15,
+      "generated_at": "2026-04-24T15:32:33.346347-04:00"
+    }
+  ]
+}

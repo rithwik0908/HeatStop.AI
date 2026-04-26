@@ -1,0 +1,28 @@
+services:
+  - name: heatstop-ai
+    type: web
+    runtime: docker
+    plan: starter
+    region: virginia
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeployTrigger: commit
+    healthCheckPath: /_stcore/health
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: HEATSTOP_BACKEND_PORT
+        value: "8000"
+      - key: HEATSTOP_API_URL
+        value: "http://127.0.0.1:8000"
+      - key: HEATSTOP_BUILD_ON_START
+        value: "0"
+      - key: HEATSTOP_BOOT_CORRIDORS
+        value: "M15:0,M15-SBS:0,M101:0"
+      - key: HEATSTOP_BOOT_STOP_LIMIT
+        value: "15"
+      - key: HEATSTOP_ENABLE_PUBLIC_IMAGERY
+        value: "1"
+      - key: HEATSTOP_USE_MAPILLARY_DEMO_TOKEN
+        value: "1"
+      - key: HEATSTOP_MAPILLARY_ACCESS_TOKEN
+        sync: false
