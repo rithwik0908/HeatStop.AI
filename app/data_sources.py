@@ -33,7 +33,7 @@ DATA_SOURCES = [
             "calendar.*",
             "calendar_dates.*",
         ],
-        notes="Official MTA Manhattan bus GTFS feed. Used to identify corridor stops and scheduled wait burden.",
+        notes="Official MTA Manhattan bus GTFS feed. Used by the current bus-stop adapter to identify waiting points along a corridor and compute scheduled wait burden.",
     ),
     DataSource(
         name="NYC DOT Bus Stop Shelters",
@@ -41,7 +41,7 @@ DATA_SOURCES = [
         source_url="https://data.cityofnewyork.us/api/views/t4f2-8md7/rows.csv?accessType=DOWNLOAD",
         local_file="data/raw/nyc_bus_stop_shelters.csv",
         fields_used=["Shelter_ID", "On_Street", "Cross_Stre", "Longitude", "Latitude"],
-        notes="Official NYC DOT shelter inventory. Spatially joined to route stops to infer shelter presence.",
+        notes="Official NYC DOT shelter inventory. Spatially joined to the current NYC bus waiting points to infer shelter presence.",
     ),
     DataSource(
         name="NYC DOT Seating Locations",
@@ -49,7 +49,7 @@ DATA_SOURCES = [
         source_url="https://data.cityofnewyork.us/resource/esmy-s8q5.csv",
         local_file="data/raw/nyc_seating_locations.csv",
         fields_used=["asset_subtype", "latitude", "longitude", "siteid"],
-        notes="Official NYC DOT seating inventory. Spatially joined to route stops as a nearby seating proxy.",
+        notes="Official NYC DOT seating inventory. Spatially joined to the current waiting points as a nearby seating proxy.",
     ),
     DataSource(
         name="NYC Street Tree Census",
@@ -57,7 +57,7 @@ DATA_SOURCES = [
         source_url="https://data.cityofnewyork.us/resource/uvpi-gqnh.csv",
         local_file="data/raw/nyc_street_trees_{route}_{direction}.csv",
         fields_used=["tree_id", "latitude", "longitude", "tree_dbh", "spc_common", "health"],
-        notes="Official tree inventory. Queried only within the corridor bounding box and buffered around stops.",
+        notes="Official tree inventory. Queried only within the active waiting-zone bounding box and buffered around the current waiting points.",
     ),
     DataSource(
         name="NYC Facilities Database",
@@ -73,7 +73,7 @@ DATA_SOURCES = [
         source_url="https://api.weather.gov/points/{lat},{lon}",
         local_file="live_api_call",
         fields_used=["heatIndex.values", "apparentTemperature.values", "temperature.values"],
-        notes="Official National Weather Service forecast grid. Used to compute corridor-wide near-term heat burden.",
+        notes="Official National Weather Service forecast grid. Used to compute waiting-zone-wide near-term heat burden.",
     ),
     DataSource(
         name="MTA Bus Time / SIRI StopMonitoring",
@@ -109,17 +109,17 @@ DATA_SOURCES = [
         source_url="https://www.mapillary.com/developer/api-documentation/",
         local_file="data/raw/stop_images/mapillary_<stop_id>.jpg",
         fields_used=["captured_at", "thumb_1024_url", "computed_geometry", "creator.username"],
-        notes="Optional stop-area street imagery used when no local image is present. The MVP uses the latest nearby image and displays attribution.",
+        notes="Optional waiting-point street imagery used when no local image is present. The MVP uses the latest nearby image and displays attribution.",
     ),
 ]
 
 
 MANUAL_INPUTS = [
     {
-        "item": "Real bus stop images",
+        "item": "Real waiting-point images",
         "path": "data/raw/stop_images/",
         "required_for": "Image-based shelter/tree/openness heuristics",
-        "instruction": "Add real JPG/PNG files named `<stop_id>.jpg` or provide `manifest.csv` with `stop_id,file_name,source_url`.",
+        "instruction": "Add real JPG/PNG files named `<stop_id>.jpg` or provide `manifest.csv` with `stop_id,file_name,source_url`. Current demo IDs are bus-stop IDs.",
     }
 ]
 

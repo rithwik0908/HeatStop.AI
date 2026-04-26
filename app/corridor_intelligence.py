@@ -514,7 +514,10 @@ def generate_corridor_intelligence(stops_df: pd.DataFrame, meta: dict) -> dict[s
     return {
         "corridor_id": meta.get("corridor_id"),
         "corridor_name": corridor["corridor_name"],
-        "source_of_truth": "Transparent stop scoring pipeline",
+        "waiting_zone_id": meta.get("corridor_id"),
+        "waiting_zone_name": corridor["corridor_name"],
+        "waiting_zone_type": "corridor",
+        "source_of_truth": "Transparent waiting-point scoring pipeline",
         "reasoning_mode": analyst_output.get("source", llm_source_label()),
         "evidence": evidence,
         "analyst": analyst_output,
@@ -526,3 +529,7 @@ def generate_corridor_intelligence(stops_df: pd.DataFrame, meta: dict) -> dict[s
             "top_stops": corridor["top_stops"],
         },
     }
+
+
+def generate_waiting_zone_intelligence(stops_df: pd.DataFrame, meta: dict) -> dict[str, Any]:
+    return generate_corridor_intelligence(stops_df, meta)

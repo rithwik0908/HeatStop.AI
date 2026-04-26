@@ -143,7 +143,7 @@ def fetch_stop_arrivals(stop_id: str, route_short_name: str | None = None) -> di
     status = "ok" if items else "empty"
     message = None
     if status == "empty":
-        message = "No live arrivals are available for this stop right now."
+        message = "No live arrivals are available for this waiting point right now."
 
     return {
         "status": status,

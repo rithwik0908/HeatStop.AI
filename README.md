@@ -1,50 +1,79 @@
 # HeatStop AI
 
-HeatStop AI is a production-style MVP that ranks bus stops by heat-risk upgrade priority using only real public data and real user-supplied imagery. The default scope is Manhattan in New York City, with one or more selected bus corridors built from the official MTA feed. Each corridor is still intentionally capped to a small ordered stop set for demo clarity.
+HeatStop AI is a production-style MVP for identifying and improving exposed outdoor waiting locations. The current live demo is intentionally scoped to NYC bus corridors, where bus stops act as the first concrete implementation of a broader `WaitingPoint` model.
+
+Today, the app ranks real bus stops by heat-risk upgrade priority using only real public data and real user-supplied imagery. Architecturally, the same platform pattern is intended to extend later to:
+
+- bus stops
+- shuttle stops
+- school pickup / drop-off waiting zones
+- hospital transport pickup points
+- transfer waiting zones
+- rideshare pickup areas
+- event queue / waiting areas
 
 The system never fabricates stop rows, coordinates, images, heat values, or GTFS metrics. If a real source is missing, the app shows an empty state and tells you what to provide.
+
+## Platform scope and current demo
+
+- **Platform scope:** outdoor public waiting-space resilience
+- **Current demo scope:** NYC bus corridors
+- **Core domain concept:** `WaitingPoint`
+- **Current source adapter:** MTA bus-stop corridors in Manhattan
+
+That means the current MVP is still fully bus-specific where it needs to be, such as:
+
+- MTA stop IDs
+- route / direction filtering
+- corridor grouping
+- live bus ETA
+
+But the broader product framing, code structure, and data aliases now treat bus stops as the first adapter for a more general outdoor waiting-space platform.
 
 ## Final architecture
 
 ### Backend
 
-- `FastAPI` serves processed stop rankings, metadata, and GeoJSON.
-- `app/ingest.py` downloads official data, builds one or more corridor stop sets, joins amenities, pulls NOAA/NWS heat metrics, and writes processed outputs plus a corridor registry.
+- `FastAPI` serves processed waiting-point rankings, metadata, and GeoJSON.
+- `app/domain/` now holds the generalized waiting-point model, intervention labels, and generic risk labels.
+- `app/providers/` now exposes source-specific adapters and wrappers for MTA bus data, NYC open data, weather, and imagery.
+- `app/services/` now exposes generic waiting-space services such as scoring, planner logic, corridor intelligence, rider copilot, and future budgeting hooks.
+- `app/ingest.py` still powers the current MTA bus corridor build, joins amenities, pulls NOAA/NWS heat metrics, and writes processed outputs plus a corridor registry.
 - `app/weather.py` centralizes NWS weather fetches, weather metadata, and live corridor refresh summaries.
-- `app/scoring.py` computes a transparent weighted HeatStop Priority Score and exposes a full score breakdown.
-- `app/vision.py` runs lightweight OpenCV heuristics on real stop images only.
-- `app/planner.py` generates planner-facing notes strictly from computed features.
+- `app/scoring.py` computes a transparent weighted HeatStop Priority Score and exposes a full score breakdown. It now also exposes a generic `score_waiting_points(...)` alias.
+- `app/vision.py` runs lightweight OpenCV heuristics on real waiting-point imagery only.
+- `app/planner.py` generates planner-facing notes strictly from computed features and now exposes waiting-point planning aliases.
 - `app/llm.py` adds an optional LLM explanation layer with deterministic fallback when no provider key is configured.
 - `app/vulnerability.py` fetches official NYC facility proxies for hospitals, senior services, and K-12 schools.
-- `app/corridor_intelligence.py` runs a lightweight three-agent corridor reasoning workflow on top of real computed stop evidence.
+- `app/corridor_intelligence.py` runs a lightweight three-agent corridor reasoning workflow on top of real computed waiting-point evidence for the current corridor grouping.
 
 ### Frontend
 
 - `Streamlit` provides a clean judge-friendly dashboard.
-- `Folium` renders a color-coded route map.
-- A ranked table and stop detail card show the score, image, computed features, score contributions, recommended intervention, and planner note.
+- `Folium` renders a color-coded route map for the current demo corridor.
+- A ranked table and site-intelligence card show the score, image, computed features, score contributions, recommended intervention, and planner note.
 
 ### Data flow
 
 1. Download official GTFS, shelter, seating, tree, and weather inputs.
-2. Build one or more real corridor stop lists from GTFS.
+2. Build one or more real corridor waiting-point lists from GTFS.
 3. Spatially join shelters, nearby seating, and nearby trees.
-4. Optionally analyze real stop images from `data/raw/stop_images/`.
-5. Score the stops with transparent weights.
+4. Optionally analyze real waiting-point images from `data/raw/stop_images/`.
+5. Score the waiting points with transparent weights.
 6. Write `data/processed/stops_scored.csv` and `stops_scored.geojson`.
 7. Serve the results through FastAPI and render them in Streamlit.
 8. Optionally refresh corridor weather live in the dashboard without rebuilding the corridor.
 9. Recompute scores from fresh NWS weather while preserving the existing spatial and image features.
-10. Build corridor-level agent intelligence from the scored stop set, segment patterns, and vulnerability proxy joins.
+10. Build corridor-level agent intelligence from the scored waiting-point set, segment patterns, and vulnerability proxy joins.
 
 ## Exact real datasets used
 
-### Default NYC MVP
+### Current NYC bus corridor demo
 
 1. `MTA Manhattan GTFS`
 Source: http://web.mta.info/developers/data/nyct/bus/google_transit_manhattan.zip
 Used for:
-- stop locations
+- bus-stop locations
 - route / direction filtering
 - service-date filtering
 - scheduled departure counts
@@ -361,13 +390,21 @@ If no OpenAI key is configured, the app still runs the same three-step workflow 
 
 The UI shape stays the same whether the reasoning source is OpenAI or deterministic fallback.
 
-## Nearby Relief Copilot
+## HeatStop Copilot
 
-The dashboard now includes a rider-facing `Nearby Relief Copilot` section. It is separate from the city-planning panels and uses the selected stop plus live waiting context to answer:
+The dashboard now includes a broader `HeatStop Copilot` section. It is separate from the city-planning panels and acts as a stop-and-corridor assistant for the currently selected stop.
 
-- should I stay near this stop?
-- is there a safer nearby place to wait?
-- is there a lower-exposure nearby stop on the same corridor?
+It can answer questions about:
+
+- stop heat risk
+- why the stop is high priority
+- which upgrade should happen first
+- nearby safer places to wait
+- next bus ETA
+- whether a lower-risk nearby stop is better
+- corridor-level risk patterns
+- what evidence is missing
+- broader proxy-based questions such as people activity, noise, bus crowding, and how exposed the stop likely feels
 
 The copilot combines:
 
@@ -375,12 +412,51 @@ The copilot combines:
 2. real-time MTA stop arrivals when available
 3. nearby relief places from OpenStreetMap / Overpass
 4. nearby lower-risk stop candidates from the existing corridor score output
+5. corridor intelligence evidence already computed from the stop scoring pipeline
+6. conservative proxy estimators when no verified live feed exists
 
-Important:
+### Evidence tiers
 
-- the deterministic waiting logic is the source of truth
-- the optional LLM layer only explains that grounded recommendation
-- if real-time ETA or nearby-place lookup fails, the UI falls back cleanly to stop risk guidance
+The copilot never treats guesses as official facts. Every answer section is labeled with one of these tiers:
+
+- `Verified` / `Live`
+  - real scored stop signals
+  - real NWS weather
+  - real MTA ETA when available
+  - real nearby places from Overpass / OpenStreetMap
+  - real corridor aggregates from the existing scoring pipeline
+- `Estimated`
+  - proxy-based people activity
+  - proxy-based noise level
+  - proxy-based bus crowding
+  - proxy-based felt exposure
+  - budget guidance heuristic
+- `Unavailable`
+  - used when HeatStop has neither a verified feed nor a defensible proxy
+
+### Capability-aware routing
+
+The copilot is not a generic freeform chatbot.
+
+It routes questions through a capability layer that checks:
+
+- which signals are verified and available
+- which signals can be estimated from proxies
+- which signals are unavailable
+
+Then it:
+
+1. identifies the requested signal(s)
+2. uses verified data first
+3. falls back to proxy estimates only when justified
+4. clearly marks unavailable signals when no grounded answer exists
+
+### Important behavior
+
+- the deterministic capability/evidence logic is the source of truth
+- the optional LLM layer only explains structured outputs from that capability layer
+- if real-time ETA or nearby-place lookup fails, the copilot falls back cleanly to stop risk guidance
+- if a signal like people count, noise, or bus occupancy is only estimated, the UI labels it as estimated and shows confidence
 
 ## Computer vision approach
 
@@ -465,6 +541,16 @@ Notes:
 
 ## Build the real dataset
 
+These commands still build the current NYC bus-stop demo. Under the hood, the output now also carries generalized `WaitingPoint` aliases such as:
+
+- `waiting_point_id`
+- `waiting_point_name`
+- `waiting_point_type`
+- `waiting_zone_id`
+- `waiting_zone_name`
+- `waiting_zone_type`
+- `source_adapter`
+
 Single corridor:
 
 ```bash
@@ -516,12 +602,16 @@ In the dashboard:
 1. Choose a corridor.
 2. Click `Refresh Weather`.
 3. Wait for the live NWS snapshot and rescored corridor results.
-4. Inspect a stop to see the updated note source, observed conditions, risk drivers, and refreshed weather metadata.
-5. Use `Nearby Relief Copilot` to fetch:
+4. Inspect a waiting point to see the updated note source, observed conditions, risk drivers, and refreshed weather metadata.
+5. Use `HeatStop Copilot` to fetch and answer from:
 - the next live bus arrival
 - nearby safer places to wait
 - a lower-risk nearby stop candidate when one is practical
-6. Ask the copilot a rider question such as `Should I stay here or wait somewhere cooler?`
+6. Ask broader copilot questions such as:
+- `Should I stay here or wait somewhere cooler?`
+- `Why is this waiting point high priority?`
+- `How many people are near this waiting point?`
+- `What evidence is missing here?`
 
 Single-process local run that matches production:
 
@@ -572,13 +662,13 @@ Notes:
 
 ## Places where real data still must be supplied manually
 
-1. `Stop imagery`
-Reason: local images are optional, but still best if you want stop-specific framing.
+1. `Waiting-point imagery`
+Reason: local images are optional, but still best if you want location-specific framing.
 Action: place real images in `data/raw/stop_images/`.
 
-2. `Alternative city support`
-Reason: this MVP is intentionally scoped to NYC for hackathon feasibility.
-Action: swap the source URLs and field mappings in `app/ingest.py` and `app/data_sources.py`.
+2. `Alternative adapters or cities`
+Reason: this MVP is intentionally scoped to NYC bus corridors for hackathon feasibility.
+Action: add a new provider adapter under `app/providers/` and connect its field mappings into the shared waiting-point services.
 
 3. `LLM provider key`
 Reason: the repo now supports a real LLM planner-note layer, but it is optional.
@@ -586,7 +676,7 @@ Action: set `HEATSTOP_OPENAI_API_KEY` if you want live LLM planner notes instead
 
 4. `MTA Bus Time API key`
 Reason: rider ETA guidance depends on the official live stop-monitoring feed.
-Action: set `HEATSTOP_MTA_BUS_TIME_API_KEY` if you want real-time arrivals inside `Nearby Relief Copilot`.
+Action: set `HEATSTOP_MTA_BUS_TIME_API_KEY` if you want real-time arrivals inside `HeatStop Copilot`.
 
 ## Engineering notes
 
@@ -594,3 +684,4 @@ Action: set `HEATSTOP_MTA_BUS_TIME_API_KEY` if you want real-time arrivals insid
 - Missing data is left null, excluded from weighted scoring when appropriate, and surfaced in the UI.
 - Each processed corridor is capped at 10-30 stops for demo clarity.
 - The backend is simple enough for a hackathon but structured enough to extend cleanly.
+- Bus stops remain the first fully implemented adapter, but the domain/service/provider split now supports future adapters such as campus shuttles, school pickup zones, hospital pickup points, and event waiting areas without rewriting the core scoring or copilot layers.

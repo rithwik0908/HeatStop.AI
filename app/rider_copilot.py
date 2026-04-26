@@ -81,6 +81,8 @@ def find_lower_risk_stop_candidates(selected_stop: dict[str, Any], corridor_stop
                 "relative_risk": round(candidate_risk, 1),
                 "distance_m": round(distance_m, 1),
                 "walking_minutes": _walking_minutes(distance_m),
+                "stop_lat": _safe_float(row.get("stop_lat")),
+                "stop_lon": _safe_float(row.get("stop_lon")),
                 "has_shelter": bool(row.get("has_shelter")) if not pd.isna(row.get("has_shelter")) else None,
                 "has_nearby_seating": bool(row.get("has_nearby_seating")) if not pd.isna(row.get("has_nearby_seating")) else None,
                 "route_short_name": row.get("route_short_name"),
@@ -118,14 +120,14 @@ def build_wait_guidance(
         decision_mode = "arrival_unavailable"
         headline = "Live arrivals are unavailable right now."
         summary = (
-            f"This stop is currently rated {risk_label.lower()} heat risk, so use nearby shade or indoor relief if you expect a longer wait."
+            f"This waiting point is currently rated {risk_label.lower()} heat risk, so use nearby shade or indoor relief if you expect a longer wait."
         )
         reasoning.append("Real-time bus arrival data is unavailable, so the copilot is grounding advice in stop heat risk and nearby relief options only.")
         if risk_label in {"Critical", "High"} and utility_place:
             decision_mode = "seek_relief_without_eta"
             headline = "Use a safer nearby waiting place while monitoring arrivals."
             summary = (
-                f"This stop is {risk_label.lower()} risk and the best nearby option is {utility_place['name']} "
+                f"This waiting point is {risk_label.lower()} risk and the best nearby option is {utility_place['name']} "
                 f"({utility_place['walking_minutes']} min walk, {utility_place['category'].lower()})."
             )
             steps.append(f"Move to {utility_place['name']} if you expect the bus to be delayed.")
@@ -206,7 +208,7 @@ def build_wait_guidance(
             f"{lower_risk_stop['stop_name']} is a nearby lower-risk stop at {lower_risk_stop['walking_minutes']} minutes on foot."
         )
     if risk_label in {"Critical", "High"}:
-        reasoning.append(f"HeatStop currently rates this stop as {risk_label.lower()} risk.")
+        reasoning.append(f"HeatStop currently rates this waiting point as {risk_label.lower()} risk.")
 
     if not steps:
         steps.append("Keep the bus in view if possible and minimize direct sun while waiting.")
@@ -227,6 +229,15 @@ def build_wait_guidance(
         "arrivals_status": arrivals_payload.get("status"),
         "relief_status": relief_payload.get("status"),
     }
+
+
+def build_waiting_guidance(
+    selected_waiting_point: dict[str, Any],
+    waiting_points: pd.DataFrame,
+    arrivals_payload: dict[str, Any],
+    relief_payload: dict[str, Any],
+) -> dict[str, Any]:
+    return build_wait_guidance(selected_waiting_point, waiting_points, arrivals_payload, relief_payload)
 
 
 RIDER_RESPONSE_SCHEMA = {

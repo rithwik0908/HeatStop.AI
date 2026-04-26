@@ -11,14 +11,15 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import IMAGES_DIR, settings
 from app.data_sources import MANUAL_INPUTS, serialize_sources
+from app.domain.waiting_points import canonical_waiting_point_record
 from app.ingest import PROCESSED_DIR, list_processed_corridors, load_processed_outputs, refresh_corridor_weather_scores
 from app.nearby_relief import fetch_nearby_relief_places
-from app.planner import build_planner_note, recommend_action_summary
+from app.services.planner import build_planner_note, recommend_action_summary
 from app.realtime_arrivals import fetch_stop_arrivals
 from app.weather import weather_summary_from_frame
 
 
-app = FastAPI(title="HeatStop AI API", version="0.1.0")
+app = FastAPI(title="HeatStop AI WaitingPoint API", version="0.1.0")
 allow_origins = settings.cors_allow_origins or ["http://localhost:8501", "http://127.0.0.1:8501"]
 allow_credentials = settings.cors_allow_credentials and "*" not in allow_origins
 app.add_middleware(
@@ -58,6 +59,7 @@ def _clean_records(df: pd.DataFrame) -> list[dict]:
             row["display_image_url"] = row["display_image_source_url"]
         elif row.get("image_url"):
             row["display_image_url"] = row["image_url"]
+        row.update(canonical_waiting_point_record(row))
     return cleaned
 
 
@@ -65,6 +67,11 @@ def _enrich_meta(meta: dict, df: pd.DataFrame) -> dict:
     enriched = dict(meta)
     enriched["sources"] = enriched.get("sources", serialize_sources())
     enriched["manual_inputs"] = enriched.get("manual_inputs", MANUAL_INPUTS)
+    enriched["platform_scope"] = enriched.get("platform_scope", settings.platform_scope)
+    enriched["current_demo_scope"] = enriched.get("current_demo_scope", settings.current_demo_scope)
+    enriched["waiting_point_type"] = enriched.get("waiting_point_type", "bus_stop")
+    enriched["waiting_zone_type"] = enriched.get("waiting_zone_type", "corridor")
+    enriched["source_adapter"] = enriched.get("source_adapter", "mta_bus_gtfs")
     fallback_updated_at = enriched.get("generated_at")
     enriched["weather"] = weather_summary_from_frame(df, fallback_updated_at=fallback_updated_at) if not df.empty else {}
     return enriched
@@ -73,9 +80,9 @@ def _enrich_meta(meta: dict, df: pd.DataFrame) -> dict:
 @app.get("/")
 def root() -> dict:
     return {
-        "name": "HeatStop AI API",
+        "name": "HeatStop AI WaitingPoint API",
         "status": "ok",
-        "message": "Backend is running.",
+        "message": "Backend is running for the broader outdoor waiting-space resilience platform. Current demo: NYC bus corridors.",
         "endpoints": {
             "health": "/health",
             "corridors": "/corridors",
@@ -100,6 +107,8 @@ def health() -> dict:
         "message": meta.get("message"),
         "corridors_count": len(corridors),
         "default_corridor_id": meta.get("corridor_id"),
+        "current_demo_scope": meta.get("current_demo_scope", "NYC bus corridors"),
+        "platform_scope": meta.get("platform_scope", "Outdoor public waiting-space resilience"),
     }
 
 
@@ -169,12 +178,16 @@ def get_rider_support(stop_id: str, corridor_id: str | None = None) -> dict:
     return {
         "stop": {
             "stop_id": str(row["stop_id"]),
+            "waiting_point_id": str(row.get("waiting_point_id") or row["stop_id"]),
             "stop_name": row.get("stop_name"),
+            "waiting_point_name": row.get("waiting_point_name") or row.get("stop_name"),
+            "waiting_point_type": row.get("waiting_point_type") or "bus_stop",
             "route_short_name": row.get("route_short_name"),
             "direction_id": row.get("direction_id"),
             "stop_lat": stop_lat,
             "stop_lon": stop_lon,
             "corridor_id": meta.get("corridor_id"),
+            "waiting_zone_id": row.get("waiting_zone_id") or meta.get("corridor_id"),
         },
         "arrivals": arrivals,
         "nearby_relief": relief_places,

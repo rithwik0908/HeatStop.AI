@@ -28,6 +28,8 @@ def _csv_env(name: str, default: str) -> list[str]:
 @dataclass
 class Settings:
     city_name: str = os.getenv("HEATSTOP_CITY_NAME", "New York City")
+    platform_scope: str = os.getenv("HEATSTOP_PLATFORM_SCOPE", "Outdoor public waiting-space resilience")
+    current_demo_scope: str = os.getenv("HEATSTOP_CURRENT_DEMO_SCOPE", "NYC bus corridors")
     route_short_name: str = os.getenv("HEATSTOP_ROUTE_SHORT_NAME", "M15")
     direction_id: int = int(os.getenv("HEATSTOP_DIRECTION_ID", "0"))
     stop_limit: int = int(os.getenv("HEATSTOP_STOP_LIMIT", "20"))

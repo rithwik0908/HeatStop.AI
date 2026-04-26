@@ -2,21 +2,22 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from app.domain.interventions import WAITING_POINT_INTERVENTION_LABELS
 from app.llm import generate_grounded_planner_note
 
 
 def recommend_action_labels(row: dict) -> list[str]:
     actions: list[str] = []
     if row.get("shelter_present_effective") == False:
-        actions.append("Shade canopy")
+        actions.append(WAITING_POINT_INTERVENTION_LABELS["shade_canopy"])
     if row.get("bench_present_effective") == False:
-        actions.append("Add seating")
+        actions.append(WAITING_POINT_INTERVENTION_LABELS["add_seating"])
     if (row.get("combined_tree_cover_score") or 0) < 0.35:
-        actions.append("Increase tree cover")
+        actions.append(WAITING_POINT_INTERVENTION_LABELS["increase_tree_cover"])
     if (row.get("wait_burden_value") or 0) > 0.65:
-        actions.append("Service review")
+        actions.append(WAITING_POINT_INTERVENTION_LABELS["service_review"])
     if not actions:
-        actions.append("Monitor")
+        actions.append(WAITING_POINT_INTERVENTION_LABELS["monitor"])
     return actions
 
 
@@ -42,12 +43,20 @@ def recommend_action_summary(row: dict) -> str:
 def summarize_contributors(labels: Iterable[str]) -> str:
     labels = [label for label in labels if label]
     if not labels:
-        return "overall corridor heat burden"
+        return "overall waiting-zone heat burden"
     if len(labels) == 1:
         return labels[0]
     if len(labels) == 2:
         return f"{labels[0]} and {labels[1]}"
     return f"{labels[0]}, {labels[1]}, and {labels[2]}"
+
+
+def recommend_waiting_point_intervention(row: dict) -> str:
+    return recommend_intervention(row)
+
+
+def recommend_waiting_point_action_summary(row: dict) -> str:
+    return recommend_action_summary(row)
 
 
 def planner_note_payload(row: dict, top_contributors: list[str]) -> dict:

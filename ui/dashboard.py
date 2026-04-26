@@ -4,6 +4,8 @@ import html
 import json
 import sys
 from pathlib import Path
+from textwrap import dedent
+from urllib.parse import urlencode
 
 import folium
 import pandas as pd
@@ -16,10 +18,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.config import IMAGES_DIR, settings
-from app.corridor_intelligence import generate_corridor_intelligence
-from app.rider_copilot import build_rider_copilot_response, build_wait_guidance
-from app.planner import recommend_action_summary, recommend_intervention, summarize_contributors
-from app.vision import _find_image_path, analyze_image
+from app.copilot_router import QUESTION_EXAMPLES, answer_heatstop_copilot
+from app.providers.imagery import _find_image_path, analyze_image
+from app.services.corridor_intelligence import generate_waiting_zone_intelligence
+from app.services.planner import recommend_action_summary, recommend_intervention, summarize_contributors
 
 
 st.set_page_config(page_title="HeatStop AI", page_icon="☀️", layout="wide")
@@ -125,6 +127,25 @@ st.markdown(
         border-radius: 20px;
         background: rgba(15, 25, 42, 0.86);
         border: 1px solid rgba(255, 107, 61, 0.14);
+      }
+      .scope-card {
+        padding: 1rem 1.02rem;
+        min-height: 138px;
+        border-radius: 20px;
+        background: linear-gradient(180deg, rgba(16, 27, 46, 0.95), rgba(10, 17, 31, 0.98));
+        border: 1px solid rgba(132, 156, 192, 0.14);
+        box-shadow: var(--shadow);
+      }
+      .scope-card-title {
+        margin-top: 0.55rem;
+        font-size: 1rem;
+        font-weight: 700;
+      }
+      .scope-card-text {
+        margin-top: 0.45rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 1.5;
       }
       .insight-label {
         color: #ffb898;
@@ -361,6 +382,103 @@ st.markdown(
         color: var(--muted);
         line-height: 1.45;
       }
+      .stop-rating-hero {
+        margin-top: 0.75rem;
+        padding: 0.9rem 1rem;
+        border-radius: 18px;
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025));
+        border: 1px solid color-mix(in srgb, var(--rating-color, var(--teal)) 35%, rgba(255, 255, 255, 0.08));
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      }
+      .stop-rating-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+      }
+      .stop-rating-title {
+        font-size: 0.76rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 700;
+      }
+      .stop-rating-band {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.28rem 0.62rem;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #fff;
+        background: var(--rating-color, var(--teal));
+      }
+      .stop-rating-value-row {
+        display: flex;
+        align-items: baseline;
+        gap: 0.22rem;
+        margin-top: 0.45rem;
+      }
+      .stop-rating-value {
+        font-size: 2.2rem;
+        line-height: 1;
+        font-weight: 800;
+        color: #f8fbff;
+      }
+      .stop-rating-scale {
+        font-size: 1.05rem;
+        color: var(--muted);
+        font-weight: 700;
+      }
+      .stop-rating-note {
+        margin-top: 0.34rem;
+        color: var(--muted);
+        font-size: 0.84rem;
+        line-height: 1.45;
+      }
+      .action-links,
+      .builder-action-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        margin-top: 0.8rem;
+      }
+      .action-link,
+      .builder-action-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.52rem 0.8rem;
+        border-radius: 999px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        text-decoration: none !important;
+        border: 1px solid rgba(132, 156, 192, 0.2);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text) !important;
+        transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+      }
+      .action-link:hover,
+      .builder-action-link:hover {
+        transform: translateY(-1px);
+        border-color: rgba(143, 220, 255, 0.42);
+        background: rgba(143, 220, 255, 0.08);
+      }
+      .builder-action-link.primary,
+      .action-link.primary {
+        border-color: rgba(255, 107, 61, 0.34);
+        background: rgba(255, 107, 61, 0.12);
+      }
+      .builder-action-link.secondary,
+      .action-link.secondary {
+        border-color: rgba(25, 195, 165, 0.3);
+        background: rgba(25, 195, 165, 0.1);
+      }
+      .builder-action-link.ghost,
+      .action-link.ghost {
+        border-color: rgba(132, 156, 192, 0.18);
+        background: rgba(255, 255, 255, 0.03);
+      }
       .ranked-table-wrap {
         margin-top: 0.9rem;
       }
@@ -590,6 +708,11 @@ st.markdown(
         color: var(--muted);
         line-height: 1.45;
       }
+      .builder-note {
+        margin-top: 0.5rem;
+        color: var(--muted);
+        line-height: 1.55;
+      }
       .copilot-response-card {
         padding: 1rem 1.05rem;
         border-radius: 18px;
@@ -712,26 +835,26 @@ def image_source_profile(provider: str | None) -> dict[str, str]:
     provider = str(provider or "").strip()
     if provider == "Community upload":
         return {
-            "label": "Verified stop photo",
+            "label": "Verified waiting-point photo",
             "status": "Highest confidence",
-            "description": "Community-submitted photo captured specifically for this stop area.",
+            "description": "Community-submitted photo captured specifically for this waiting area.",
         }
     if provider == "Local file":
         return {
             "label": "Local evidence photo",
             "status": "Manual local evidence",
-            "description": "Local stop-area image supplied outside the public imagery workflow.",
+            "description": "Local waiting-area image supplied outside the public imagery workflow.",
         }
     if provider == "Mapillary":
         return {
             "label": "Nearby street context image",
             "status": "Lower-confidence context",
-            "description": "Crowdsourced street-level image captured near the stop, not guaranteed to frame the exact stop waiting zone.",
+            "description": "Crowdsourced street-level image captured near the waiting point, not guaranteed to frame the exact waiting zone.",
         }
     return {
-        "label": "No verified stop photo",
+        "label": "No verified waiting-point photo",
         "status": "No image evidence",
-        "description": "This stop currently has no verified stop-area photo in the app.",
+        "description": "This waiting point currently has no verified waiting-area photo in the app.",
     }
 
 
@@ -748,7 +871,7 @@ def save_community_upload(stop: dict, uploaded_file, contributor_name: str, cont
             now_utc = pd.Timestamp.utcnow()
             if now_utc < next_allowed_at:
                 return False, (
-                    f"A community photo was already added for this stop on {format_timestamp(str(latest_upload.get('uploaded_at')))}. "
+                    f"A community photo was already added for this waiting point on {format_timestamp(str(latest_upload.get('uploaded_at')))}. "
                     f"You can add another photo after {format_timestamp(next_allowed_at.isoformat())}."
                 )
 
@@ -873,6 +996,15 @@ def tree_inventory_band(tree_count: object) -> str:
     return "Low"
 
 
+def evidence_tone(tier: str) -> str:
+    normalized = str(tier or "").lower()
+    if normalized in {"verified", "live", "official"}:
+        return "low"
+    if normalized in {"estimated", "proxy-based", "proxy"}:
+        return "med"
+    return "high"
+
+
 def pretty_driver_label(label: str) -> str:
     return label.replace("scheduled ", "").title()
 
@@ -914,8 +1046,8 @@ def field_review_display_context(stop: dict, shelter_state: dict) -> dict:
     if intervention_phrase:
         intervention_phrase = intervention_phrase[0].lower() + intervention_phrase[1:]
     planner_note = (
-        "Field review of a verified community photo indicates an overhead canopy at this stop, "
-        "so shelter absence is not treated as an active on-site deficiency for this selected-stop view. "
+        "Field review of a verified community photo indicates an overhead canopy at this waiting point, "
+        "so shelter absence is not treated as an active on-site deficiency for this selected-site view. "
         f"The highest remaining priorities are {remaining}. "
         f"The most practical near-term intervention is to {intervention_phrase}."
     )
@@ -1106,12 +1238,207 @@ def top_intervention(stops: pd.DataFrame) -> str:
     return str(value_counts.index[0])
 
 
+def _safe_float(value: object) -> float | None:
+    try:
+        if pd.isna(value):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _safe_bool(value: object) -> bool | None:
+    try:
+        if pd.isna(value):
+            return None
+        return bool(value)
+    except Exception:
+        return None
+
+
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))
+
+
+def stop_rating_label(value: float) -> str:
+    if value >= 8.0:
+        return "Comfortable"
+    if value >= 6.5:
+        return "Solid"
+    if value >= 5.0:
+        return "Watch heat"
+    return "Exposed"
+
+
+def stop_rating_color(value: float) -> str:
+    if value >= 8.0:
+        return "#19c3a5"
+    if value >= 6.5:
+        return "#4dd2b3"
+    if value >= 5.0:
+        return "#f3ad3d"
+    return "#ff6b3d"
+
+
+def stop_rating_summary_html(rating: float, *, title: str = "Rider comfort rating") -> str:
+    return f"""
+    <div class="stop-rating-hero" style="--rating-color:{stop_rating_color(rating)};">
+      <div class="stop-rating-header">
+        <div class="stop-rating-title">{html.escape(title)}</div>
+        <span class="stop-rating-band">{html.escape(stop_rating_label(rating))}</span>
+      </div>
+      <div class="stop-rating-value-row">
+        <span class="stop-rating-value">{rating:.1f}</span>
+        <span class="stop-rating-scale">/10</span>
+      </div>
+      <div class="stop-rating-note">
+        Higher means cooler, safer, and more comfortable waiting conditions. This rider-facing score blends
+        shelter, seating, tree cover, wait burden, heat burden, and overall HeatStop risk.
+      </div>
+    </div>
+    """
+
+
+def stop_rating_out_of_10(stop_or_risk: object, relative_risk: object | None = None) -> float:
+    row: dict[str, object] = {}
+    if isinstance(stop_or_risk, dict):
+        row = dict(stop_or_risk)
+    elif hasattr(stop_or_risk, "to_dict"):
+        row = dict(stop_or_risk.to_dict())
+
+    fallback_risk = None if row else stop_or_risk
+    relative = _safe_float(
+        relative_risk
+        if relative_risk is not None
+        else row.get("display_relative_risk", row.get("normalized_priority_score", fallback_risk))
+    )
+    if relative is None:
+        relative = 50.0
+
+    shelter_present = _safe_bool(row.get("shelter_present_effective", row.get("has_shelter")))
+    if bool(row.get("display_has_field_review_override")):
+        shelter_present = True
+    no_shelter_penalty = 1.4 if shelter_present is False else 0.0
+
+    seating_present = _safe_bool(row.get("bench_present_effective", row.get("has_nearby_seating")))
+    no_seating_penalty = 0.75 if seating_present is False else 0.0
+
+    low_tree_cover = _safe_float(row.get("low_tree_cover_value"))
+    if low_tree_cover is None:
+        combined_tree_cover = _safe_float(row.get("combined_tree_cover_score"))
+        if combined_tree_cover is not None:
+            low_tree_cover = 1.0 - _clamp(combined_tree_cover, 0.0, 1.0)
+    tree_penalty = _clamp(low_tree_cover or 0.0, 0.0, 1.0) * 1.15
+
+    wait_burden = _safe_float(row.get("wait_burden_value"))
+    if wait_burden is None:
+        avg_headway = _safe_float(row.get("avg_headway_minutes"))
+        if avg_headway is not None:
+            wait_burden = _clamp((avg_headway - 5.0) / 20.0, 0.0, 1.0)
+    wait_penalty = _clamp(wait_burden or 0.0, 0.0, 1.0) * 0.9
+
+    heat_burden = _safe_float(row.get("heat_burden_value", row.get("heat_burden_score")))
+    heat_penalty = _clamp(heat_burden or 0.0, 0.0, 1.0) * 0.95
+
+    open_sky = _safe_float(row.get("open_sky_ratio"))
+    open_sky_penalty = 0.0
+    if open_sky is not None and open_sky > 0.7:
+        open_sky_penalty = _clamp((open_sky - 0.7) / 0.3, 0.0, 1.0) * 0.45
+
+    overall_risk_penalty = _clamp(relative / 100.0, 0.0, 1.0) * 0.75
+
+    rating = 9.3 - (
+        no_shelter_penalty
+        + no_seating_penalty
+        + tree_penalty
+        + wait_penalty
+        + heat_penalty
+        + open_sky_penalty
+        + overall_risk_penalty
+    )
+    return round(_clamp(rating, 2.5, 9.6), 1)
+
+
+def google_maps_search_url(lat: object, lon: object) -> str | None:
+    safe_lat = _safe_float(lat)
+    safe_lon = _safe_float(lon)
+    if safe_lat is None or safe_lon is None:
+        return None
+    query = urlencode({"api": 1, "query": f"{safe_lat},{safe_lon}"})
+    return f"https://www.google.com/maps/search/?{query}"
+
+
+def google_maps_directions_url(lat: object, lon: object, travelmode: str = "driving") -> str | None:
+    safe_lat = _safe_float(lat)
+    safe_lon = _safe_float(lon)
+    if safe_lat is None or safe_lon is None:
+        return None
+    query = urlencode({"api": 1, "destination": f"{safe_lat},{safe_lon}", "travelmode": travelmode})
+    return f"https://www.google.com/maps/dir/?{query}"
+
+
+def google_maps_street_view_url(lat: object, lon: object) -> str | None:
+    safe_lat = _safe_float(lat)
+    safe_lon = _safe_float(lon)
+    if safe_lat is None or safe_lon is None:
+        return None
+    query = urlencode({"api": 1, "map_action": "pano", "viewpoint": f"{safe_lat},{safe_lon}"})
+    return f"https://www.google.com/maps/@?{query}"
+
+
+def maps_action_links_html(
+    lat: object,
+    lon: object,
+    *,
+    include_street_view: bool = False,
+    include_walk: bool = False,
+    class_name: str = "action-link",
+) -> str:
+    links: list[str] = []
+    search_url = google_maps_search_url(lat, lon)
+    if search_url:
+        links.append(
+            f"<a class='{class_name}' href='{html.escape(search_url)}' target='_blank' rel='noopener noreferrer'>Open in Google Maps</a>"
+        )
+    drive_url = google_maps_directions_url(lat, lon, travelmode="driving")
+    if drive_url:
+        links.append(
+            f"<a class='{class_name} primary' href='{html.escape(drive_url)}' target='_blank' rel='noopener noreferrer'>Navigate crew</a>"
+        )
+    if include_walk:
+        walk_url = google_maps_directions_url(lat, lon, travelmode="walking")
+        if walk_url:
+            links.append(
+                f"<a class='{class_name} secondary' href='{html.escape(walk_url)}' target='_blank' rel='noopener noreferrer'>Walking route</a>"
+            )
+    if include_street_view:
+        street_url = google_maps_street_view_url(lat, lon)
+        if street_url:
+            links.append(
+                f"<a class='{class_name} ghost' href='{html.escape(street_url)}' target='_blank' rel='noopener noreferrer'>Street-level view</a>"
+            )
+    if not links:
+        return ""
+    row_class = "builder-action-row" if "builder" in class_name else "action-links"
+    return f"<div class='{row_class}'>{''.join(links)}</div>"
+
+
 def kpi_card_html(label: str, value: str, subtitle: str, accent: str, icon: str) -> str:
     return f"""
     <div class="kpi-card" style="--accent:{accent};">
       <div class="kpi-icon">{html.escape(icon)} {html.escape(label)}</div>
       <div class="kpi-value">{html.escape(value)}</div>
       <div class="kpi-subtitle">{html.escape(subtitle)}</div>
+    </div>
+    """
+
+
+def use_case_card_html(title: str, subtitle: str, accent: str) -> str:
+    return f"""
+    <div class="scope-card">
+      <div class="eyebrow" style="background:{accent}; border-color:transparent; color:#fff;">Platform fit</div>
+      <div class="scope-card-title">{html.escape(title)}</div>
+      <div class="scope-card-text">{html.escape(subtitle)}</div>
     </div>
     """
 
@@ -1167,11 +1494,20 @@ def render_action_cards(stops: pd.DataFrame) -> None:
         return
     for _, row in top_rows.iterrows():
         display_score = float(row.get("display_priority_score", row["priority_score"]))
+        relative_risk = float(row.get("display_relative_risk", row.get("normalized_priority_score", display_score)) or 0)
+        stop_rating = stop_rating_out_of_10(row, relative_risk=relative_risk)
         tone = score_tone(display_score)
         reason_text = str(row.get("display_top_contributors") or row.get("top_contributors") or "No major drivers listed")
         action_text = str(row.get("display_recommended_action_summary") or row.get("recommended_action_summary") or row.get("recommended_intervention") or "No action listed")
+        rating_html = stop_rating_summary_html(stop_rating).strip()
+        action_links_html = maps_action_links_html(
+            row.get("stop_lat"),
+            row.get("stop_lon"),
+            include_street_view=True,
+        ).strip()
         st.markdown(
-            f"""
+            dedent(
+                f"""
             <div class="action-card {tone}">
               <div class="action-topline">
                 <div class="action-stop">{html.escape(str(row['stop_name']))}</div>
@@ -1180,9 +1516,12 @@ def render_action_cards(stops: pd.DataFrame) -> None:
                 </span>
               </div>
               <div class="action-reason">{html.escape(reason_text)}</div>
+              {rating_html}
               <div class="action-summary">{html.escape(action_text)}</div>
+              {action_links_html}
             </div>
-            """,
+            """
+            ).strip(),
             unsafe_allow_html=True,
         )
 
@@ -1244,10 +1583,10 @@ def render_corridor_intelligence(intelligence: dict) -> None:
           <div class="section-head">
             <div>
               <div class="section-kicker">Agent layer</div>
-              <div class="section-title">Corridor Intelligence</div>
+              <div class="section-title">Waiting-Zone Intelligence</div>
             </div>
             <div class="section-text">
-              Facts come from the existing score pipeline and facility joins. Agents interpret those facts into corridor patterns, vulnerability overlaps, and planner actions.
+              Facts come from the existing score pipeline and facility joins. The current demo groups waiting points by bus corridor, and the agent layer interprets those facts into zone patterns, vulnerability overlaps, and planner actions.
             </div>
           </div>
         </div>
@@ -1366,18 +1705,22 @@ def _relief_badges(place: dict) -> str:
 
 def _render_relief_places(places: list[dict]) -> None:
     if not places:
-        st.info("No nearby relief places were found in the configured free/open categories for this stop.")
+        st.info("No nearby relief places were found in the configured free/open categories for this waiting point.")
         return
     for place in places[:4]:
+        action_links_html = maps_action_links_html(place.get("lat"), place.get("lon"), include_walk=True).strip()
         st.markdown(
-            f"""
+            dedent(
+                f"""
             <div class="relief-card">
               <div class="relief-name">{html.escape(str(place.get('name', 'Nearby place')))}</div>
               {_relief_badges(place)}
               <div class="relief-meta">{html.escape(str(place.get('usefulness', 'Useful nearby place while waiting.')))}</div>
               <div class="relief-meta">Source: {html.escape(str(place.get('provider', 'OpenStreetMap / Overpass API')))}</div>
+              {action_links_html}
             </div>
-            """,
+            """
+            ).strip(),
             unsafe_allow_html=True,
         )
 
@@ -1388,8 +1731,14 @@ def _render_lower_risk_stop(lower_risk_stop: dict | None) -> None:
         return
     shelter = bool_label(lower_risk_stop.get("has_shelter"))
     seating = bool_label(lower_risk_stop.get("has_nearby_seating"))
+    action_links_html = maps_action_links_html(
+        lower_risk_stop.get("stop_lat"),
+        lower_risk_stop.get("stop_lon"),
+        include_walk=True,
+    ).strip()
     st.markdown(
-        f"""
+        dedent(
+            f"""
         <div class="relief-card">
           <div class="relief-name">{html.escape(str(lower_risk_stop.get('stop_name')))}</div>
           <div class="meta-chip-row">
@@ -1399,10 +1748,37 @@ def _render_lower_risk_stop(lower_risk_stop: dict | None) -> None:
             <span class="meta-chip">Shelter: {html.escape(shelter)}</span>
             <span class="meta-chip">Seating: {html.escape(seating)}</span>
           </div>
+          {action_links_html}
         </div>
-        """,
+        """
+        ).strip(),
         unsafe_allow_html=True,
     )
+
+
+def render_copilot_sections(sections: list[dict]) -> None:
+    if not sections:
+        st.info("No grounded copilot sections are available for this question.")
+        return
+    for section in sections:
+        tier = str(section.get("tier", "Unavailable"))
+        confidence = str(section.get("confidence", "n/a"))
+        sources = [str(source) for source in section.get("sources", []) if str(source).strip()]
+        sources_text = ", ".join(sources[:3]) if sources else "HeatStop evidence layer"
+        st.markdown(
+            f"""
+            <div class="detail-subpanel" style="margin-top:0.75rem;">
+              <div class="section-kicker">{html.escape(str(section.get('title', 'Signal')))}</div>
+              <div class="risk-chip-row" style="margin-top:0.45rem;">
+                <span class="risk-chip {evidence_tone(tier)}">{html.escape(tier)}</span>
+                <span class="meta-chip">Confidence: {html.escape(confidence)}</span>
+              </div>
+              <div style="margin-top:0.6rem; line-height:1.58;">{html.escape(str(section.get('summary', 'No summary available.')))}</div>
+              <div style="margin-top:0.65rem; color:var(--muted); font-size:0.9rem;">Source: {html.escape(sources_text)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def render_nearby_relief_copilot(
@@ -1410,19 +1786,18 @@ def render_nearby_relief_copilot(
     corridor_stops: pd.DataFrame,
     rider_support: dict,
     support_key: str,
+    corridor_intelligence: dict | None = None,
 ) -> None:
     arrivals = rider_support.get("arrivals", {})
     nearby_relief = rider_support.get("nearby_relief", {})
-    guidance = build_wait_guidance(stop, corridor_stops, arrivals, nearby_relief)
+    copilot_state = st.session_state.rider_copilot_answers.get(support_key)
+    if not copilot_state:
+        copilot_state = answer_heatstop_copilot(None, stop, corridor_stops, rider_support, corridor_intelligence)
+    guidance = copilot_state.get("guidance", {})
     arrival_headline, arrival_detail = _arrival_summary(arrivals)
     risk_score = float(stop.get("display_relative_risk", stop.get("normalized_priority_score", 0)) or 0)
-    risk_driver = str(stop.get("display_top_contributors") or stop.get("top_contributors") or "HeatStop stop evidence")
-    last_response = st.session_state.rider_copilot_answers.get(support_key)
-    if not last_response:
-        last_response = {
-            "question": "Should I stay here or wait somewhere cooler?",
-            "response": build_rider_copilot_response(None, guidance, stop),
-        }
+    risk_driver = str(stop.get("display_top_contributors") or stop.get("top_contributors") or "HeatStop waiting-point evidence")
+    last_response = copilot_state
 
     st.markdown(
         """
@@ -1430,10 +1805,10 @@ def render_nearby_relief_copilot(
           <div class="section-head">
             <div>
               <div class="section-kicker">Rider support</div>
-              <div class="section-title">Nearby Relief Copilot</div>
+              <div class="section-title">HeatStop Copilot</div>
             </div>
             <div class="section-text">
-              Heat-aware waiting guidance that combines the selected stop’s HeatStop risk, live MTA arrival timing, and nearby safer places to wait.
+              Waiting-point and corridor assistant grounded in HeatStop risk, live arrivals, nearby relief places, and current corridor evidence. Every answer is labeled as verified, estimated, or unavailable.
             </div>
           </div>
         </div>
@@ -1446,7 +1821,7 @@ def render_nearby_relief_copilot(
         st.markdown(
             f"""
             <div class="rider-mini-card">
-              <div class="section-kicker">Selected stop heat risk</div>
+              <div class="section-kicker">Selected waiting-point heat risk</div>
               <div class="rider-mini-value" style="color:{score_color(risk_score)};">{risk_score:.1f} · {html.escape(severity_label(risk_score))}</div>
               <div class="rider-mini-text">{html.escape(risk_driver)}</div>
             </div>
@@ -1491,8 +1866,8 @@ def render_nearby_relief_copilot(
         f"""
         <div class="copilot-response-card">
           <div class="section-kicker">Heat-aware waiting guidance</div>
-          <div class="copilot-headline">{html.escape(guidance['headline'])}</div>
-          <div class="copilot-summary">{html.escape(guidance['summary'])}</div>
+          <div class="copilot-headline">{html.escape(str(guidance.get('headline', 'No guidance available right now.')))}</div>
+          <div class="copilot-summary">{html.escape(str(guidance.get('summary', '')))}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1516,28 +1891,58 @@ def render_nearby_relief_copilot(
           </div>
           <div style="height:0.7rem;"></div>
           <div class="section-kicker">Answer</div>
-          <div style="font-weight:700;">{html.escape(last_response['response'].get('answer', guidance['summary']))}</div>
+          <div style="font-weight:700;">{html.escape(last_response.get('answer', guidance.get('summary', '')))}</div>
           <div style="margin-top:0.55rem; color:var(--muted); line-height:1.55;">
-            {html.escape(last_response['response'].get('follow_up_tip', guidance['steps'][0]))}
+            {html.escape(last_response.get('follow_up_tip', (guidance.get('steps') or [''])[0]))}
+          </div>
+          <div class="risk-chip-row" style="margin-top:0.7rem;">
+            <span class="risk-chip {evidence_tone(str(last_response.get('primary_tier', 'Unavailable')))}">{html.escape(str(last_response.get('primary_tier', 'Unavailable')))}</span>
+            <span class="meta-chip">Confidence: {html.escape(str(last_response.get('primary_confidence', 'n/a')))}</span>
           </div>
           <div style="margin-top:0.75rem; color:var(--muted); font-size:0.9rem;">
-            Source: {html.escape(last_response['response'].get('source', 'Deterministic fallback'))}
+            Source: {html.escape(str(last_response.get('source', 'Deterministic capability router')))}
           </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+    render_copilot_sections(last_response.get("sections", []))
+
+    related_signals = last_response.get("related_signals") or []
+    if related_signals:
+        chips = "".join(
+            f"<span class='meta-chip'>{html.escape(str(item.get('label')))} · {html.escape(str(item.get('tier')))}</span>"
+            for item in related_signals
+        )
+        st.markdown(
+            f"""
+            <div class="detail-subpanel" style="margin-top:0.75rem;">
+              <div class="section-kicker">Related signals available</div>
+              <div class="meta-chip-row" style="margin-top:0.55rem;">{chips}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    examples = last_response.get("examples") or QUESTION_EXAMPLES
+    example_text = " · ".join(examples[:5])
+    st.caption(f"Example questions: {example_text}")
 
     with st.form(f"rider_copilot_form_{support_key}"):
         question = st.text_input(
-            "Too hot to wait here?",
+            "Ask about this waiting point or corridor",
             value=last_response.get("question", ""),
-            placeholder="Example: What’s the best place to spend 10 minutes before the bus arrives?",
+            placeholder="Example: Why is this waiting point high priority? Is the bus packed? What evidence is missing here?",
         )
         asked = st.form_submit_button("Ask the copilot")
         if asked:
-            response = build_rider_copilot_response(question, guidance, stop)
-            st.session_state.rider_copilot_answers[support_key] = {"question": question, "response": response}
+            st.session_state.rider_copilot_answers[support_key] = answer_heatstop_copilot(
+                question,
+                stop,
+                corridor_stops,
+                rider_support,
+                corridor_intelligence,
+            )
             st.rerun()
 
     if guidance.get("steps"):
@@ -1548,7 +1953,7 @@ def render_nearby_relief_copilot(
 
 
 def score_ring_html(score: float) -> str:
-    return score_panel_html(score, "Relative corridor risk")
+    return score_panel_html(score, "Relative waiting-zone risk")
 
 
 def score_panel_html(score: float, label: str, subtitle: str | None = None) -> str:
@@ -1619,9 +2024,9 @@ def render_upload_form(stop: dict) -> None:
         """
         <div class="detail-subpanel">
           <div class="section-kicker">Community update</div>
-          <div class="section-title" style="font-size:1.15rem; margin-top:0.25rem;">Help update this stop</div>
+          <div class="section-title" style="font-size:1.15rem; margin-top:0.25rem;">Help update this waiting point</div>
           <div class="section-text" style="margin-top:0.35rem;">
-            Contribute current stop evidence with a real photo from the curb, shelter area, or passenger waiting zone.
+            Contribute current site evidence with a real photo from the curb, shelter area, or passenger waiting zone.
           </div>
         </div>
         """,
@@ -1633,7 +2038,7 @@ def render_upload_form(stop: dict) -> None:
     if latest_upload is not None and pd.notna(latest_upload.get("uploaded_at_ts")):
         next_allowed_at = latest_upload["uploaded_at_ts"] + pd.Timedelta(hours=24)
         st.caption(
-            "Community uploads are limited to one new photo per stop every 24 hours. "
+            "Community uploads are limited to one new photo per waiting point every 24 hours. "
             f"Last upload: {format_timestamp(str(latest_upload.get('uploaded_at')))}."
         )
         if pd.Timestamp.utcnow() < next_allowed_at:
@@ -1646,12 +2051,12 @@ def render_upload_form(stop: dict) -> None:
             placeholder="Example: facing north from the curb near the shelter pole",
         )
         uploaded_file = st.file_uploader(
-            "Upload a real stop photo",
+            "Upload a real waiting-point photo",
             type=["jpg", "jpeg", "png", "webp"],
             key=f"uploader_file_{stop['stop_id']}",
-            help="Only upload a real photo of this stop area. Do not upload generated or unrelated images.",
+            help="Only upload a real photo of this waiting area. Do not upload generated or unrelated images.",
         )
-        submitted = st.form_submit_button("Contribute current stop evidence")
+        submitted = st.form_submit_button("Contribute current site evidence")
         if submitted:
             if uploaded_file is None:
                 st.warning("Choose an image before submitting.")
@@ -1659,7 +2064,7 @@ def render_upload_form(stop: dict) -> None:
                 ok, message = save_community_upload(stop, uploaded_file, contributor_name, contributor_note)
                 if ok:
                     st.session_state["community_upload_message"] = (
-                        f"Community photo saved for {stop['stop_name']}. The image will now appear for this stop."
+                        f"Community photo saved for {stop['stop_name']}. The image will now appear for this waiting point."
                     )
                     st.rerun()
                 st.warning(message)
@@ -1671,10 +2076,10 @@ def render_stop_intelligence(stop: dict, corridor_stops: pd.DataFrame | None = N
         <div class="section-shell">
           <div class="section-head">
             <div>
-              <div class="section-kicker">Selected stop</div>
-              <div class="section-title">Stop Intelligence</div>
+              <div class="section-kicker">Selected waiting point</div>
+              <div class="section-title">Site Intelligence</div>
             </div>
-            <div class="section-text">Trace why this location matters, what the evidence says, and what action should happen next.</div>
+            <div class="section-text">Trace why this outdoor waiting location matters, what the evidence says, and what action should happen next.</div>
           </div>
         </div>
         """,
@@ -1743,8 +2148,8 @@ def render_stop_intelligence(stop: dict, corridor_stops: pd.DataFrame | None = N
             if shelter_state["conflict"]:
                 st.warning(
                     "Field evidence conflicts with official shelter inventory. "
-                    "A verified community photo shows overhead canopy at this stop, but the official shelter dataset does not match it. "
-                    "The app keeps official data as primary for corridor ranking and surfaces the photo-based override here for the selected stop."
+                    "A verified community photo shows overhead canopy at this waiting point, but the official shelter dataset does not match it. "
+                    "The app keeps official data as primary for corridor ranking and surfaces the photo-based override here for the selected site."
                 )
             image_attribution_url = (
                 local_record.get("image_attribution_url")
@@ -1758,9 +2163,9 @@ def render_stop_intelligence(stop: dict, corridor_stops: pd.DataFrame | None = N
                 """
                 <div class="image-empty">
                   <div class="eyebrow">Evidence gap</div>
-                  <h4>No verified stop photo is available yet</h4>
+                  <h4>No verified waiting-point photo is available yet</h4>
                   <p>
-                    This stop is still scored from real transit, amenity, tree, and weather data. Add a current photo to improve
+                    This waiting point is still scored from real transit, amenity, tree, and weather data. Add a current photo to improve
                     the evidence base for image-derived conditions.
                   </p>
                 </div>
@@ -1775,7 +2180,7 @@ def render_stop_intelligence(stop: dict, corridor_stops: pd.DataFrame | None = N
         st.markdown(
             f"""
             <div class="intelligence-header">
-              <div class="section-kicker">Stop profile</div>
+              <div class="section-kicker">Waiting-point profile</div>
               <div class="intelligence-title">{html.escape(str(stop['stop_name']))}</div>
               <div class="intelligence-sub">
                 Stop ID {html.escape(str(stop['stop_id']))} | Route {html.escape(str(stop['route_short_name']))} | Direction {html.escape(str(stop['direction_id']))}
@@ -1788,14 +2193,18 @@ def render_stop_intelligence(stop: dict, corridor_stops: pd.DataFrame | None = N
         tabs = st.tabs(["Overview", "Evidence", "Planner Note", "Community Update"])
 
         with tabs[0]:
+            primary_stop_rating = stop_rating_out_of_10(
+                stop,
+                relative_risk=float(score_context["adjusted_relative"]) if score_context["override_active"] else float(stop["normalized_priority_score"]),
+            )
             if score_context["override_active"]:
                 score_left, score_right = st.columns(2, gap="large")
                 with score_left:
                     st.markdown(
                         score_panel_html(
                             float(score_context["adjusted_relative"]),
-                            "Field-reviewed stop risk",
-                            f"Primary selected-stop view using verified canopy evidence. Adjusted weighted score: {float(score_context['adjusted_raw']):.1f}.",
+                            "Field-reviewed waiting-point risk",
+                            f"Primary selected-site view using verified canopy evidence. Adjusted weighted score: {float(score_context['adjusted_raw']):.1f}.",
                         ),
                         unsafe_allow_html=True,
                     )
@@ -1811,15 +2220,27 @@ def render_stop_intelligence(stop: dict, corridor_stops: pd.DataFrame | None = N
             else:
                 st.markdown(score_ring_html(float(stop["normalized_priority_score"])), unsafe_allow_html=True)
             st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
+            rating_html = stop_rating_summary_html(primary_stop_rating).strip()
+            st.markdown(
+                dedent(
+                    f"""
+                <div class="detail-subpanel">
+                  {rating_html}
+                </div>
+                """
+                ).strip(),
+                unsafe_allow_html=True,
+            )
+            st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
             st.markdown("<div class='section-kicker'>Primary drivers</div>", unsafe_allow_html=True)
             render_driver_chips(stop, display_context["driver_labels"])
             if shelter_state["selected_stop_override"]:
                 st.markdown(
                     """
                     <div class="detail-subpanel" style="margin-top:0.75rem;">
-                      <div class="section-kicker">Selected-stop field override</div>
+                      <div class="section-kicker">Selected-site field override</div>
                       <div style="margin-top:0.35rem; line-height:1.55;">
-                        Verified community photo indicates overhead canopy at this stop. This override is shown for field review only and does not alter the corridor ranking.
+                        Verified community photo indicates overhead canopy at this waiting point. This override is shown for field review only and does not alter the corridor ranking.
                       </div>
                     </div>
                     """,
@@ -1833,6 +2254,28 @@ def render_stop_intelligence(stop: dict, corridor_stops: pd.DataFrame | None = N
                   <div style="margin-top:0.35rem; font-size:1.05rem; line-height:1.5;">{html.escape(display_context['recommended_intervention'])}</div>
                 </div>
                 """,
+                unsafe_allow_html=True,
+            )
+            st.markdown("<div style='height:0.7rem'></div>", unsafe_allow_html=True)
+            builder_links_html = maps_action_links_html(
+                stop.get("stop_lat"),
+                stop.get("stop_lon"),
+                include_street_view=True,
+                class_name="builder-action-link",
+            ).strip()
+            st.markdown(
+                dedent(
+                    f"""
+                <div class="detail-subpanel">
+                  <div class="section-kicker">Builder actions</div>
+                  <div style="margin-top:0.35rem; font-weight:700;">Move from triage into field inspection or upgrade execution.</div>
+                  <div class="builder-note">
+                    HeatStop decides which stop needs attention first. Google Maps helps crews reach the site, inspect the curb, and verify the upgrade area.
+                  </div>
+                  {builder_links_html}
+                </div>
+                """
+                ).strip(),
                 unsafe_allow_html=True,
             )
 
@@ -1996,7 +2439,7 @@ def render_stop_intelligence(stop: dict, corridor_stops: pd.DataFrame | None = N
                     <div class="detail-subpanel">
                       <div class="section-kicker">Community-submitted evidence</div>
                       <div style="margin-top:0.35rem; line-height:1.55;">
-                        A local contributor has already supplied current visual evidence for this stop.
+                        A local contributor has already supplied current visual evidence for this waiting point.
                       </div>
                     </div>
                     """,
@@ -2044,7 +2487,7 @@ def main() -> None:
     default_corridor_id = health.get("default_corridor_id") or (corridor_items[0]["corridor_id"] if corridor_items else None)
 
     if not health.get("has_processed_data"):
-        st.warning(empty_meta.get("message", "Processed data not found."))
+        st.warning(empty_meta.get("message", "Processed waiting-point data not found."))
         st.code("python scripts/build_demo_data.py --route M15 --direction 0 --stop-limit 20")
         st.stop()
 
@@ -2054,16 +2497,45 @@ def main() -> None:
     st.markdown(
         """
         <div class="command-shell">
-          <div class="eyebrow">Urban resilience command center</div>
+          <div class="eyebrow">Outdoor waiting-space resilience platform</div>
           <div class="hero-title">HeatStop AI</div>
           <div class="hero-subtitle">
-            Transit Heat Response Cockpit for bus-stop heat-risk intelligence. Rank exposure risk, trace the evidence,
-            and surface the most defensible near-term intervention for planners.
+            Resilience copilot for exposed outdoor waiting locations. Current demo: NYC bus corridors. Rank exposure risk,
+            trace the evidence, and surface defensible near-term interventions for bus stops today, with a structure that
+            can expand to shuttle stops, pickup zones, hospital transport points, and other public waiting spaces later.
           </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+    st.markdown(
+        """
+        <div class="section-shell">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">Platform scope</div>
+              <div class="section-title">Who Can Use This?</div>
+            </div>
+            <div class="section-text">
+              HeatStop AI is framed as a general platform for exposed outdoor waiting locations. The current live implementation is intentionally focused on NYC bus corridors for demo clarity.
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    scope_a, scope_b, scope_c, scope_d, scope_e = st.columns(5, gap="large")
+    with scope_a:
+        st.markdown(use_case_card_html("Cities & transit agencies", "Triage exposed curbside waiting points and route corridors for shade, seating, and resilience upgrades.", "rgba(255,107,61,0.88)"), unsafe_allow_html=True)
+    with scope_b:
+        st.markdown(use_case_card_html("Campuses & shuttle systems", "Apply the same waiting-point model to campus shuttle loops, transfer nodes, and event loading areas.", "rgba(25,195,165,0.88)"), unsafe_allow_html=True)
+    with scope_c:
+        st.markdown(use_case_card_html("Hospitals & patient transport", "Prioritize outdoor pickup points where heat exposure, wait burden, and vulnerability overlap matter most.", "rgba(243,173,61,0.88)"), unsafe_allow_html=True)
+    with scope_d:
+        st.markdown(use_case_card_html("Schools & pickup zones", "Generalize the resilience workflow to school dismissal waiting areas and parent pickup points.", "rgba(111,143,255,0.88)"), unsafe_allow_html=True)
+    with scope_e:
+        st.markdown(use_case_card_html("Venues & event operations", "Extend the same site-risk logic to temporary queue bands, rideshare staging, and transfer waiting zones.", "rgba(190,120,255,0.88)"), unsafe_allow_html=True)
 
     selected_corridor_id = default_corridor_id
     control_left, control_mid, control_right = st.columns([1.25, 0.42, 1.55], gap="large")
@@ -2127,7 +2599,7 @@ def main() -> None:
     weather = active_payload.get("weather") or meta.get("weather", {})
     stops = pd.DataFrame(active_payload.get("items", []))
     if stops.empty:
-        st.warning("No stops are available for the selected corridor.")
+        st.warning("No waiting points are available for the selected corridor.")
         st.stop()
     display_stops = prepare_display_stops(stops)
 
@@ -2143,7 +2615,7 @@ def main() -> None:
         st.markdown(
             f"""
             <div class="insight-card">
-              <div class="insight-label">Current corridor insight</div>
+              <div class="insight-label">Current waiting-zone insight</div>
               <div class="insight-text">{html.escape(corridor_insight(insight_stops))}</div>
             </div>
             """,
@@ -2172,7 +2644,7 @@ def main() -> None:
     with kpi_a:
         st.markdown(
             kpi_card_html(
-                "Current corridor heat snapshot",
+                "Current active-zone heat snapshot",
                 f"{heat_value:.1f} F" if heat_value is not None else "n/a",
                 weather.get("summary") or "Live corridor weather snapshot from NWS.",
                 "#ff6b3d",
@@ -2183,7 +2655,7 @@ def main() -> None:
     with kpi_b:
         st.markdown(
             kpi_card_html(
-                "Stops scored",
+                "Waiting points scored",
                 str(len(stops)),
                 f"Active corridor: {corridor_label}",
                 "#19c3a5",
@@ -2194,7 +2666,7 @@ def main() -> None:
     with kpi_c:
         st.markdown(
             kpi_card_html(
-                "Critical and high-risk stops",
+                "Critical and high-risk waiting points",
                 str(critical_count),
                 "Locations demanding the strongest near-term response.",
                 "#ff4d5a",
@@ -2217,7 +2689,7 @@ def main() -> None:
     intelligence_key = corridor_intelligence_cache_key(display_stops, meta)
     if intelligence_key not in st.session_state.corridor_intelligence_cache:
         with st.spinner("Running corridor intelligence agents..."):
-            st.session_state.corridor_intelligence_cache[intelligence_key] = generate_corridor_intelligence(display_stops, meta)
+            st.session_state.corridor_intelligence_cache[intelligence_key] = generate_waiting_zone_intelligence(display_stops, meta)
     corridor_intelligence = st.session_state.corridor_intelligence_cache[intelligence_key]
     render_corridor_intelligence(corridor_intelligence)
 
@@ -2226,7 +2698,7 @@ def main() -> None:
         st.session_state[current_stop_key] = display_stops["stop_id"].iloc[0]
 
     selected_stop_id = st.selectbox(
-        "Inspect a stop",
+        "Inspect a waiting point",
         options=display_stops["stop_id"].tolist(),
         key=current_stop_key,
         format_func=lambda stop_id: f"{display_stops.loc[display_stops['stop_id'] == stop_id, 'stop_name'].iloc[0]} ({stop_id})",
@@ -2243,7 +2715,7 @@ def main() -> None:
                   <div class="section-title">Risk Landscape</div>
                 </div>
                 <div class="section-text">
-                  Scan the corridor to see where exposure concentrates by segment and where the selected stop sits inside the wider heat-response pattern.
+                  Scan the active waiting zone to see where exposure concentrates by segment and where the selected waiting point sits inside the wider heat-response pattern.
                 </div>
               </div>
             </div>
@@ -2264,7 +2736,7 @@ def main() -> None:
                   <div class="section-title">Top Actions Today</div>
                 </div>
                 <div class="section-text">
-                  Highest-risk stops surfaced as a concise response list for planners and operations staff.
+                  Highest-risk waiting points surfaced as a concise response list for planners and operations staff.
                 </div>
               </div>
             </div>
@@ -2274,11 +2746,13 @@ def main() -> None:
         st.markdown("<div class='panel-card'>", unsafe_allow_html=True)
         render_action_cards(display_stops)
         st.markdown("<div class='ranked-table-wrap'>", unsafe_allow_html=True)
+        ranked_table = display_stops.assign(stop_rating_10=display_stops.apply(stop_rating_out_of_10, axis=1))
         st.dataframe(
-            display_stops.loc[:, ["stop_name", "display_priority_score", "display_top_contributors", "display_recommended_action_summary"]].rename(
+            ranked_table.loc[:, ["stop_name", "display_priority_score", "stop_rating_10", "display_top_contributors", "display_recommended_action_summary"]].rename(
                 columns={
                     "stop_name": "stop",
                     "display_priority_score": "risk",
+                    "stop_rating_10": "comfort /10",
                     "display_top_contributors": "key risk reason",
                     "display_recommended_action_summary": "recommended intervention",
                 }
@@ -2317,8 +2791,16 @@ def main() -> None:
                     )
                 except requests.RequestException:
                     st.session_state.rider_support_payloads[support_key] = empty_rider_support_payload(selected_stop)
+                existing_question = (st.session_state.rider_copilot_answers.get(support_key) or {}).get("question")
+                st.session_state.rider_copilot_answers[support_key] = answer_heatstop_copilot(
+                    existing_question,
+                    selected_stop,
+                    display_stops,
+                    st.session_state.rider_support_payloads[support_key],
+                    corridor_intelligence,
+                )
     rider_support_payload = st.session_state.rider_support_payloads.get(support_key, empty_rider_support_payload(selected_stop))
-    render_nearby_relief_copilot(selected_stop, display_stops, rider_support_payload, support_key)
+    render_nearby_relief_copilot(selected_stop, display_stops, rider_support_payload, support_key, corridor_intelligence)
 
     st.caption("HeatStop AI keeps the scoring engine unchanged and only reshapes how evidence, urgency, and action are surfaced.")
 

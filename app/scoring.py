@@ -7,16 +7,11 @@ import numpy as np
 import pandas as pd
 
 from app.config import DEFAULT_SCORE_WEIGHTS
+from app.domain.risk_labels import WAITING_POINT_FEATURE_LABELS
 from app.planner import build_planner_note, recommend_action_summary, recommend_intervention
 
 
-FEATURE_LABELS = {
-    "no_shelter": "no shelter",
-    "low_tree_cover": "low tree cover",
-    "heat_burden": "high heat burden",
-    "wait_burden": "long scheduled wait exposure",
-    "no_bench": "nearby seating gap",
-}
+FEATURE_LABELS = WAITING_POINT_FEATURE_LABELS
 
 
 def _normalize(values: pd.Series, lower: float | None = None, upper: float | None = None) -> pd.Series:
@@ -122,3 +117,11 @@ def score_stops(
     df["planner_note_urgency"] = [record["planner_note_urgency"] for record in planner_records]
     df["planner_note_source"] = [record["planner_note_source"] for record in planner_records]
     return df.sort_values(["priority_score", "avg_headway_minutes"], ascending=[False, False]).reset_index(drop=True)
+
+
+def score_waiting_points(
+    stops_df: pd.DataFrame,
+    weights: dict[str, float] | None = None,
+    planner_mode: str = "fallback",
+) -> pd.DataFrame:
+    return score_stops(stops_df, weights=weights, planner_mode=planner_mode)

@@ -181,7 +181,7 @@ def fetch_nearby_relief_places(stop_lat: float, stop_lon: float) -> dict[str, An
     status = "ok" if trimmed else "empty"
     return {
         "status": status,
-        "message": None if trimmed else "No nearby relief places matched the configured categories near this stop.",
+        "message": None if trimmed else "No nearby relief places matched the configured categories near this waiting point.",
         "source_label": SOURCE_LABEL,
         "source_url": SOURCE_URL,
         "fetched_at": fetched_at,

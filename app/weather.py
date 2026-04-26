@@ -40,8 +40,8 @@ def metric_display_name(metric_used: str | None) -> str:
 
 def weather_card_label(metric_used: str | None) -> str:
     if metric_used == "heatIndex":
-        return "Current corridor heat index (°F)"
-    return "Near-term corridor heat snapshot (°F)"
+        return "Current active-zone heat index (°F)"
+    return "Near-term active-zone heat snapshot (°F)"
 
 
 def fetch_weather_snapshot(lat: float, lon: float, horizon_hours: int | None = None) -> dict[str, Any]:

@@ -14,8 +14,9 @@ import requests
 
 from app.config import PROCESSED_DIR, RAW_DIR, settings
 from app.data_sources import DATA_SOURCES, MANUAL_INPUTS
+from app.domain.waiting_points import add_waiting_point_aliases
 from app.public_imagery import attach_public_imagery
-from app.scoring import score_stops
+from app.services.scoring import score_waiting_points
 from app.vision import analyze_stop_images
 from app.weather import apply_weather_snapshot, fetch_weather_snapshot, weather_summary_from_frame
 
@@ -324,7 +325,7 @@ def _corridor_paths(corridor_id: str) -> dict[str, Path]:
 def _empty_state() -> dict:
     return {
         "status": "empty",
-        "message": "No processed dataset found. Run `python scripts/build_demo_data.py` first.",
+        "message": "No processed waiting-point dataset found. Run `python scripts/build_demo_data.py` first.",
         "sources": [asdict(source) for source in DATA_SOURCES],
         "manual_inputs": MANUAL_INPUTS,
         "corridors": [],
@@ -354,6 +355,8 @@ def list_processed_corridors() -> list[dict]:
             "label": meta.get("corridor_name", f"{meta['route_short_name']} direction {meta['direction_id']}"),
             "route_short_name": meta["route_short_name"],
             "direction_id": int(meta["direction_id"]),
+            "waiting_zone_type": meta.get("waiting_zone_type", "corridor"),
+            "waiting_point_type": meta.get("waiting_point_type", "bus_stop"),
             "service_date": meta.get("service_date"),
             "stop_count": meta.get("stop_count"),
             "generated_at": meta.get("generated_at"),
@@ -461,7 +464,19 @@ def build_processed_dataset(
     stops_df["route_rank"] = range(1, len(stops_df) + 1)
     stops_df["corridor_name"] = corridor_name
     stops_df["corridor_id"] = corridor_id
-    scored = score_stops(stops_df, weights=settings.score_weights)
+    stops_df = add_waiting_point_aliases(
+        stops_df,
+        waiting_point_type="bus_stop",
+        waiting_zone_type="corridor",
+        source_adapter="mta_bus_gtfs",
+    )
+    scored = score_waiting_points(stops_df, weights=settings.score_weights)
+    scored = add_waiting_point_aliases(
+        scored,
+        waiting_point_type="bus_stop",
+        waiting_zone_type="corridor",
+        source_adapter="mta_bus_gtfs",
+    )
 
     corridor_paths = _corridor_paths(corridor_id)
     corridor_paths["dir"].mkdir(parents=True, exist_ok=True)
@@ -480,6 +495,11 @@ def build_processed_dataset(
         "city_name": settings.city_name,
         "route_short_name": route_short_name,
         "direction_id": direction_id,
+        "current_demo_scope": "NYC bus corridors",
+        "platform_scope": "Outdoor public waiting-space resilience",
+        "waiting_point_type": "bus_stop",
+        "waiting_zone_type": "corridor",
+        "source_adapter": "mta_bus_gtfs",
         "stop_limit": stop_limit,
         "stop_count": int(len(scored)),
         "service_date": service_date_obj.isoformat(),
@@ -497,6 +517,8 @@ def build_processed_dataset(
             "label": corridor_name,
             "route_short_name": route_short_name,
             "direction_id": int(direction_id),
+            "waiting_zone_type": "corridor",
+            "waiting_point_type": "bus_stop",
             "service_date": service_date_obj.isoformat(),
             "stop_count": int(len(scored)),
             "generated_at": build_meta["generated_at"],
@@ -556,7 +578,13 @@ def refresh_corridor_weather_scores(corridor_id: str | None = None) -> tuple[pd.
     refreshed = apply_weather_snapshot(df, weather)
 
     active_weights = meta.get("score_weights") or settings.score_weights
-    rescored = score_stops(refreshed, weights=active_weights, planner_mode="auto")
+    rescored = score_waiting_points(refreshed, weights=active_weights, planner_mode="auto")
+    rescored = add_waiting_point_aliases(
+        rescored,
+        waiting_point_type=str(meta.get("waiting_point_type") or "bus_stop"),
+        waiting_zone_type=str(meta.get("waiting_zone_type") or "corridor"),
+        source_adapter=str(meta.get("source_adapter") or "mta_bus_gtfs"),
+    )
     refreshed_meta = {
         **meta,
         "weather": weather_summary_from_frame(rescored, fallback_updated_at=meta.get("generated_at")),
