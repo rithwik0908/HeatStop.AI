@@ -278,11 +278,18 @@ def _fallback_copilot_response(question: str | None, guidance: dict[str, Any]) -
 
     if any(token in question_text for token in ["indoor", "inside", "cooler", "shade", "shaded", "wait nearby", "where can i wait"]):
         if relief_place:
-            answer = (
-                f"{arrival_text}{relief_place['name']} is the best nearby waiting option right now "
-                f"({relief_place['walking_minutes']} min walk, {relief_place['category'].lower()})."
-            )
-            tip = guidance["steps"][0] if guidance.get("steps") else f"Use {relief_place['name']} while you wait."
+            if guidance.get("decision_mode") in {"wait_indoor", "wait_at_relief_place", "seek_relief_without_eta"}:
+                answer = (
+                    f"{arrival_text}{relief_place['name']} is the best nearby waiting option right now "
+                    f"({relief_place['walking_minutes']} min walk, {relief_place['category'].lower()})."
+                )
+                tip = guidance["steps"][0] if guidance.get("steps") else f"Use {relief_place['name']} while you wait."
+            else:
+                answer = f"{arrival_text}{guidance['headline']} {guidance['summary']}"
+                tip = (
+                    f"If conditions worsen or arrivals slip, use {relief_place['name']} "
+                    f"({relief_place['walking_minutes']} min walk) as your backup."
+                )
         else:
             answer = f"{arrival_text}{guidance['headline']} {guidance['summary']}"
             tip = guidance["steps"][0] if guidance.get("steps") else "Minimize direct sun while you wait."
