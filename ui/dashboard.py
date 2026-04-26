@@ -17,6 +17,7 @@ if str(ROOT) not in sys.path:
 
 from app.config import IMAGES_DIR, settings
 from app.corridor_intelligence import generate_corridor_intelligence
+from app.rider_copilot import build_rider_copilot_response, build_wait_guidance
 from app.planner import recommend_action_summary, recommend_intervention, summarize_contributors
 from app.vision import _find_image_path, analyze_image
 
@@ -547,6 +548,64 @@ st.markdown(
         border-radius: 18px;
         overflow: hidden;
       }
+      .rider-shell {
+        padding: 1.1rem;
+        border-radius: 24px;
+        background:
+          linear-gradient(135deg, rgba(25, 195, 165, 0.08), transparent 28%),
+          linear-gradient(180deg, rgba(17, 28, 48, 0.96), rgba(10, 17, 31, 0.98));
+        border: 1px solid rgba(132, 156, 192, 0.16);
+        box-shadow: var(--shadow);
+      }
+      .rider-mini-card {
+        padding: 0.9rem 1rem;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(132, 156, 192, 0.12);
+        min-height: 100%;
+      }
+      .rider-mini-value {
+        margin-top: 0.3rem;
+        font-size: 1.3rem;
+        font-weight: 700;
+      }
+      .rider-mini-text {
+        margin-top: 0.35rem;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+      .relief-card {
+        padding: 0.95rem 1rem;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(132, 156, 192, 0.14);
+        margin-bottom: 0.7rem;
+      }
+      .relief-name {
+        font-size: 1rem;
+        font-weight: 700;
+      }
+      .relief-meta {
+        margin-top: 0.3rem;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .copilot-response-card {
+        padding: 1rem 1.05rem;
+        border-radius: 18px;
+        background: linear-gradient(135deg, rgba(25, 195, 165, 0.1), rgba(255, 255, 255, 0.03));
+        border: 1px solid rgba(25, 195, 165, 0.18);
+      }
+      .copilot-headline {
+        font-size: 1.15rem;
+        font-weight: 700;
+        line-height: 1.45;
+      }
+      .copilot-summary {
+        margin-top: 0.45rem;
+        color: var(--muted);
+        line-height: 1.6;
+      }
       .footer-note {
         color: var(--muted);
         font-size: 0.9rem;
@@ -734,6 +793,26 @@ def format_timestamp(value: str | None) -> str:
         return timestamp.tz_convert(datetime_now().tzinfo).strftime("%b %d, %Y %I:%M %p %Z")
     except Exception:
         return str(value)
+
+
+def weather_snapshot_is_stale(weather: dict | None, *, max_age_minutes: int = 60) -> bool:
+    if not weather:
+        return True
+    refreshed_at = weather.get("refreshed_at") or weather.get("updated_at")
+    if not refreshed_at:
+        return True
+    try:
+        timestamp = pd.Timestamp(refreshed_at)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.tz_localize("UTC")
+        now = pd.Timestamp.now(tz="America/New_York")
+        local_timestamp = timestamp.tz_convert(now.tzinfo)
+        if local_timestamp.date() != now.date():
+            return True
+        age_minutes = (now - local_timestamp).total_seconds() / 60.0
+        return age_minutes > max_age_minutes
+    except Exception:
+        return True
 
 
 def score_color(value: float) -> str:
@@ -1011,7 +1090,7 @@ def corridor_insight(stops: pd.DataFrame) -> str:
     if len(top_factors) == 1:
         return f"Most corridor exposure risk is driven by {top_factors[0].lower()}."
     if len(top_factors) == 2:
-        return f"Most corridor exposure risk clusters around {top_factors[0].lower()} and {top_factors[1].lower()}."
+        return f"Most corridor exposure risk is concentrated around {top_factors[0].lower()} and {top_factors[1].lower()}."
     return (
         f"Most corridor exposure risk is concentrated at stops with {top_factors[0].lower()}, "
         f"{top_factors[1].lower()}, and {top_factors[2].lower()}."
@@ -1194,7 +1273,7 @@ def render_corridor_intelligence(intelligence: dict) -> None:
                 str(analyst.get("severity_label", "n/a")),
                 [
                     str(analyst.get("corridor_summary", "No corridor summary available.")),
-                    f"Top cluster: {analyst.get('top_cluster', 'n/a')}",
+                    f"Top segment: {analyst.get('top_segment', 'n/a')}",
                     f"Signature insight: {analyst.get('signature_insight', 'n/a')}",
                 ],
                 [str(item) for item in analyst.get("dominant_drivers", [])],
@@ -1228,6 +1307,244 @@ def render_corridor_intelligence(intelligence: dict) -> None:
             ),
             unsafe_allow_html=True,
         )
+
+
+def empty_rider_support_payload(stop: dict) -> dict:
+    return {
+        "stop": {
+            "stop_id": str(stop.get("stop_id")),
+            "stop_name": stop.get("stop_name"),
+            "route_short_name": stop.get("route_short_name"),
+            "direction_id": stop.get("direction_id"),
+            "stop_lat": stop.get("stop_lat"),
+            "stop_lon": stop.get("stop_lon"),
+        },
+        "arrivals": {
+            "status": "unavailable",
+            "message": "Real-time arrivals are unavailable right now.",
+            "source_label": "MTA Bus Time / SIRI StopMonitoring",
+            "source_url": "https://bustime.mta.info/wiki/Developers/SIRIStopMonitoring",
+            "items": [],
+            "relevant_items": [],
+            "next_arrival": None,
+            "fetched_at": None,
+        },
+        "nearby_relief": {
+            "status": "unavailable",
+            "message": "Nearby relief places are unavailable right now.",
+            "source_label": "OpenStreetMap / Overpass API",
+            "source_url": "https://overpass-api.de/",
+            "items": [],
+            "fetched_at": None,
+        },
+    }
+
+
+def _arrival_summary(arrivals: dict) -> tuple[str, str]:
+    next_arrival = arrivals.get("next_arrival") or {}
+    eta = next_arrival.get("eta_minutes")
+    route = next_arrival.get("route")
+    destination = next_arrival.get("destination")
+    if eta is None:
+        return (
+            "Live ETA unavailable",
+            arrivals.get("message") or "Real-time arrival data is not available right now.",
+        )
+    headline = f"Next bus in {eta} min"
+    detail = f"{route or 'Bus'} to {destination}" if destination else f"{route or 'Bus'} arrival expected soon"
+    return headline, detail
+
+
+def _relief_badges(place: dict) -> str:
+    badges = [
+        f"<span class='meta-chip'>{html.escape(place.get('category', 'Place'))}</span>",
+        f"<span class='meta-chip'>{html.escape(str(place.get('distance_m', 'n/a')))} m away</span>",
+        f"<span class='meta-chip'>{html.escape(str(place.get('walking_minutes', 'n/a')))} min walk</span>",
+    ]
+    return "<div class='meta-chip-row'>" + "".join(badges) + "</div>"
+
+
+def _render_relief_places(places: list[dict]) -> None:
+    if not places:
+        st.info("No nearby relief places were found in the configured free/open categories for this stop.")
+        return
+    for place in places[:4]:
+        st.markdown(
+            f"""
+            <div class="relief-card">
+              <div class="relief-name">{html.escape(str(place.get('name', 'Nearby place')))}</div>
+              {_relief_badges(place)}
+              <div class="relief-meta">{html.escape(str(place.get('usefulness', 'Useful nearby place while waiting.')))}</div>
+              <div class="relief-meta">Source: {html.escape(str(place.get('provider', 'OpenStreetMap / Overpass API')))}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _render_lower_risk_stop(lower_risk_stop: dict | None) -> None:
+    if not lower_risk_stop:
+        st.info("No lower-exposure nearby stop on this corridor met the current walk-distance and risk-drop thresholds.")
+        return
+    shelter = bool_label(lower_risk_stop.get("has_shelter"))
+    seating = bool_label(lower_risk_stop.get("has_nearby_seating"))
+    st.markdown(
+        f"""
+        <div class="relief-card">
+          <div class="relief-name">{html.escape(str(lower_risk_stop.get('stop_name')))}</div>
+          <div class="meta-chip-row">
+            <span class="meta-chip">Risk: {html.escape(str(lower_risk_stop.get('relative_risk')))}</span>
+            <span class="meta-chip">{html.escape(str(lower_risk_stop.get('distance_m')))} m away</span>
+            <span class="meta-chip">{html.escape(str(lower_risk_stop.get('walking_minutes')))} min walk</span>
+            <span class="meta-chip">Shelter: {html.escape(shelter)}</span>
+            <span class="meta-chip">Seating: {html.escape(seating)}</span>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_nearby_relief_copilot(
+    stop: dict,
+    corridor_stops: pd.DataFrame,
+    rider_support: dict,
+    support_key: str,
+) -> None:
+    arrivals = rider_support.get("arrivals", {})
+    nearby_relief = rider_support.get("nearby_relief", {})
+    guidance = build_wait_guidance(stop, corridor_stops, arrivals, nearby_relief)
+    arrival_headline, arrival_detail = _arrival_summary(arrivals)
+    risk_score = float(stop.get("display_relative_risk", stop.get("normalized_priority_score", 0)) or 0)
+    risk_driver = str(stop.get("display_top_contributors") or stop.get("top_contributors") or "HeatStop stop evidence")
+    last_response = st.session_state.rider_copilot_answers.get(support_key)
+    if not last_response:
+        last_response = {
+            "question": "Should I stay here or wait somewhere cooler?",
+            "response": build_rider_copilot_response(None, guidance, stop),
+        }
+
+    st.markdown(
+        """
+        <div class="section-shell">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">Rider support</div>
+              <div class="section-title">Nearby Relief Copilot</div>
+            </div>
+            <div class="section-text">
+              Heat-aware waiting guidance that combines the selected stop’s HeatStop risk, live MTA arrival timing, and nearby safer places to wait.
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div class='rider-shell'>", unsafe_allow_html=True)
+    top_left, top_mid, top_right = st.columns(3, gap="large")
+    with top_left:
+        st.markdown(
+            f"""
+            <div class="rider-mini-card">
+              <div class="section-kicker">Selected stop heat risk</div>
+              <div class="rider-mini-value" style="color:{score_color(risk_score)};">{risk_score:.1f} · {html.escape(severity_label(risk_score))}</div>
+              <div class="rider-mini-text">{html.escape(risk_driver)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with top_mid:
+        st.markdown(
+            f"""
+            <div class="rider-mini-card">
+              <div class="section-kicker">Next bus arrival</div>
+              <div class="rider-mini-value">{html.escape(arrival_headline)}</div>
+              <div class="rider-mini-text">{html.escape(arrival_detail)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if arrivals.get("source_label"):
+            st.caption(
+                f"Source: {arrivals.get('source_label')} · Fetched {format_timestamp(arrivals.get('fetched_at'))}"
+            )
+    with top_right:
+        relief_count = len(nearby_relief.get("items") or [])
+        st.markdown(
+            f"""
+            <div class="rider-mini-card">
+              <div class="section-kicker">Safer nearby waiting places</div>
+              <div class="rider-mini-value">{relief_count}</div>
+              <div class="rider-mini-text">Grounded heat-relief places from {html.escape(str(nearby_relief.get('source_label', 'OpenStreetMap / Overpass API')))}.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    if arrivals.get("status") in {"error", "unavailable"}:
+        st.warning(arrivals.get("message") or "Real-time arrivals are unavailable right now.")
+    if nearby_relief.get("status") in {"error", "unavailable"}:
+        st.warning(nearby_relief.get("message") or "Nearby relief places are unavailable right now.")
+
+    st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div class="copilot-response-card">
+          <div class="section-kicker">Heat-aware waiting guidance</div>
+          <div class="copilot-headline">{html.escape(guidance['headline'])}</div>
+          <div class="copilot-summary">{html.escape(guidance['summary'])}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    guide_left, guide_right = st.columns([1.1, 0.9], gap="large")
+    with guide_left:
+        st.markdown("<div class='section-kicker' style='margin-top:1rem;'>Safer nearby places to wait</div>", unsafe_allow_html=True)
+        _render_relief_places(guidance.get("relief_places") or [])
+    with guide_right:
+        st.markdown("<div class='section-kicker' style='margin-top:1rem;'>Lower-exposure nearby stop option</div>", unsafe_allow_html=True)
+        _render_lower_risk_stop(guidance.get("lower_risk_stop"))
+
+    st.markdown("<div class='section-kicker' style='margin-top:1rem;'>Copilot answer</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div class="detail-subpanel">
+          <div class="section-kicker">Latest rider question</div>
+          <div style="margin-top:0.3rem; color:var(--muted); line-height:1.5;">
+            {html.escape(last_response.get('question', 'Should I stay here or wait somewhere cooler?'))}
+          </div>
+          <div style="height:0.7rem;"></div>
+          <div class="section-kicker">Answer</div>
+          <div style="font-weight:700;">{html.escape(last_response['response'].get('answer', guidance['summary']))}</div>
+          <div style="margin-top:0.55rem; color:var(--muted); line-height:1.55;">
+            {html.escape(last_response['response'].get('follow_up_tip', guidance['steps'][0]))}
+          </div>
+          <div style="margin-top:0.75rem; color:var(--muted); font-size:0.9rem;">
+            Source: {html.escape(last_response['response'].get('source', 'Deterministic fallback'))}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.form(f"rider_copilot_form_{support_key}"):
+        question = st.text_input(
+            "Too hot to wait here?",
+            value=last_response.get("question", ""),
+            placeholder="Example: What’s the best place to spend 10 minutes before the bus arrives?",
+        )
+        asked = st.form_submit_button("Ask the copilot")
+        if asked:
+            response = build_rider_copilot_response(question, guidance, stop)
+            st.session_state.rider_copilot_answers[support_key] = {"question": question, "response": response}
+            st.rerun()
+
+    if guidance.get("steps"):
+        st.markdown("<div class='section-kicker' style='margin-top:1rem;'>Suggested rider steps</div>", unsafe_allow_html=True)
+        for step in guidance["steps"]:
+            st.markdown(f"- {step}")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def score_ring_html(score: float) -> str:
@@ -1294,6 +1611,9 @@ def image_metadata_chips(stop: dict, local_record: dict | None) -> str:
 
 
 def render_upload_form(stop: dict) -> None:
+    if not settings.enable_community_uploads:
+        st.info("Community uploads are disabled for this deployment.")
+        return
     latest_upload = latest_community_upload_for_stop(str(stop["stop_id"]))
     st.markdown(
         """
@@ -1306,6 +1626,9 @@ def render_upload_form(stop: dict) -> None:
         </div>
         """,
         unsafe_allow_html=True,
+    )
+    st.caption(
+        "Community uploads are stored on local filesystem for this demo and may not persist in hosted deployments without persistent storage."
     )
     if latest_upload is not None and pd.notna(latest_upload.get("uploaded_at_ts")):
         next_allowed_at = latest_upload["uploaded_at_ts"] + pd.Timedelta(hours=24)
@@ -1563,13 +1886,14 @@ def render_stop_intelligence(stop: dict, corridor_stops: pd.DataFrame | None = N
             if stop.get("vision_model_name") or stop.get("vision_model_status"):
                 model_rows = pd.DataFrame(
                     [
-                        {"signal": "Pretrained vision model", "value": stop.get("vision_model_name"), "status": stop.get("vision_model_status")},
+                        {"signal": "Vision mode", "value": stop.get("vision_method"), "status": stop.get("vision_model_status")},
+                        {"signal": "Pretrained detector", "value": stop.get("vision_model_name") or "Disabled (heuristic-only mode)", "status": stop.get("vision_model_status")},
                         {"signal": "Shelter model detection", "value": bool_label(stop.get("shelter_model_detected")), "status": stop.get("shelter_model_confidence")},
                         {"signal": "Bench model detection", "value": bool_label(stop.get("bench_model_detected")), "status": stop.get("bench_model_confidence")},
-                        {"signal": "Detection summary", "value": stop.get("model_detection_summary"), "status": stop.get("vision_method")},
+                        {"signal": "Detection summary", "value": stop.get("model_detection_summary"), "status": ""},
                     ]
                 )
-                st.markdown("<div class='section-kicker' style='margin-top:1rem;'>Pretrained vision pass</div>", unsafe_allow_html=True)
+                st.markdown("<div class='section-kicker' style='margin-top:1rem;'>Vision processing status</div>", unsafe_allow_html=True)
                 st.dataframe(model_rows, use_container_width=True, hide_index=True)
 
             feature_rows = pd.DataFrame(
@@ -1701,8 +2025,14 @@ def main() -> None:
         st.session_state.live_corridor_payloads = {}
     if "weather_refresh_errors" not in st.session_state:
         st.session_state.weather_refresh_errors = {}
+    if "auto_refreshed_corridors" not in st.session_state:
+        st.session_state.auto_refreshed_corridors = set()
     if "corridor_intelligence_cache" not in st.session_state:
         st.session_state.corridor_intelligence_cache = {}
+    if "rider_support_payloads" not in st.session_state:
+        st.session_state.rider_support_payloads = {}
+    if "rider_copilot_answers" not in st.session_state:
+        st.session_state.rider_copilot_answers = {}
     if "community_upload_message" in st.session_state:
         st.success(st.session_state.pop("community_upload_message"))
 
@@ -1759,6 +2089,21 @@ def main() -> None:
             "meta": stops_payload.get("meta", {}),
             "weather": stops_payload.get("meta", {}).get("weather", {}),
         }
+    weather = active_payload.get("weather") or active_payload.get("meta", {}).get("weather", {})
+    auto_refresh_key = selected_corridor_id or "__default__"
+    if auto_refresh_key not in st.session_state.auto_refreshed_corridors and weather_snapshot_is_stale(weather):
+        with st.spinner("Refreshing stale corridor weather snapshot..."):
+            try:
+                refreshed_payload = api_post("/weather/refresh", params=params)
+                st.session_state.live_corridor_payloads[selected_corridor_id] = refreshed_payload
+                st.session_state.weather_refresh_errors[selected_corridor_id] = None
+                active_payload = refreshed_payload
+            except requests.RequestException as exc:
+                st.session_state.weather_refresh_errors[selected_corridor_id] = (
+                    f"Automatic weather refresh failed. Showing the last saved corridor snapshot. Details: {exc}"
+                )
+            finally:
+                st.session_state.auto_refreshed_corridors.add(auto_refresh_key)
 
     refresh_error = st.session_state.weather_refresh_errors.get(selected_corridor_id)
 
@@ -1898,7 +2243,7 @@ def main() -> None:
                   <div class="section-title">Risk Landscape</div>
                 </div>
                 <div class="section-text">
-                  Scan the corridor to see where exposure clusters and where the selected stop sits inside the wider heat-response pattern.
+                  Scan the corridor to see where exposure concentrates by segment and where the selected stop sits inside the wider heat-response pattern.
                 </div>
               </div>
             </div>
@@ -1948,6 +2293,32 @@ def main() -> None:
         selected_stop["score_breakdown"] = json.loads(selected_stop["score_breakdown_json"])
 
     render_stop_intelligence(selected_stop, stops)
+
+    support_key = f"{selected_corridor_id}:{selected_stop_id}"
+    rider_params = {"corridor_id": selected_corridor_id} if selected_corridor_id else None
+    if support_key not in st.session_state.rider_support_payloads:
+        with st.spinner("Fetching live arrivals and nearby relief places..."):
+            try:
+                st.session_state.rider_support_payloads[support_key] = api_get(
+                    f"/stops/{selected_stop_id}/rider-support",
+                    params=rider_params,
+                )
+            except requests.RequestException:
+                st.session_state.rider_support_payloads[support_key] = empty_rider_support_payload(selected_stop)
+
+    refresh_left, refresh_right = st.columns([1, 0.28], gap="large")
+    with refresh_right:
+        if st.button("Refresh rider guidance", key=f"refresh_rider_support_{support_key}", use_container_width=True):
+            with st.spinner("Refreshing arrivals and nearby relief places..."):
+                try:
+                    st.session_state.rider_support_payloads[support_key] = api_get(
+                        f"/stops/{selected_stop_id}/rider-support",
+                        params=rider_params,
+                    )
+                except requests.RequestException:
+                    st.session_state.rider_support_payloads[support_key] = empty_rider_support_payload(selected_stop)
+    rider_support_payload = st.session_state.rider_support_payloads.get(support_key, empty_rider_support_payload(selected_stop))
+    render_nearby_relief_copilot(selected_stop, display_stops, rider_support_payload, support_key)
 
     st.caption("HeatStop AI keeps the scoring engine unchanged and only reshapes how evidence, urgency, and action are surfaced.")
 

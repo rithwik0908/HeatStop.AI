@@ -80,7 +80,27 @@ Used for:
 - K-12 school proximity proxy
 - corridor-level vulnerability overlap findings
 
-7. `Mapillary street-level imagery`
+7. `MTA Bus Time / SIRI StopMonitoring`
+Source: https://bustime.mta.info/wiki/Developers/SIRIStopMonitoring
+Used for:
+- real-time next bus ETA at the selected stop
+- route / destination display
+- expected arrival timestamp
+- rider-facing heat-aware waiting guidance
+
+8. `OpenStreetMap / Overpass API`
+Source: https://overpass-api.de/
+Used for:
+- nearby cafes
+- libraries
+- community centers
+- pharmacies
+- parks / green spaces
+- public restrooms
+- drinking water points
+- rider-facing safer nearby waiting suggestions
+
+9. `Mapillary street-level imagery`
 Source docs:
 - https://help.mapillary.com/hc/en-us/articles/360010234680-Accessing-imagery-and-data-through-the-Mapillary-API
 - https://www.mapillary.com/developer/api-documentation/
@@ -89,7 +109,7 @@ Used for:
 - image download for UI display and OpenCV analysis
 - capture date and source attribution
 
-8. `Real stop images`
+10. `Real stop images`
 Source: local folder `data/raw/stop_images/`
 Used for:
 - visible tree ratio
@@ -106,7 +126,15 @@ The app only uses free, traceable imagery sources for stop photos:
 
 If no reliable free geolocated image exists, the detail card will say `image unavailable`.
 
-The dashboard now includes a community-photo upload flow for image-missing stops. A user can upload a real stop-area photo directly from the stop detail panel, and the app stores it locally in `data/raw/stop_images/` with manifest metadata such as stop ID, uploader name, note, and upload timestamp.
+The dashboard includes a community-photo upload flow for image-missing stops when enabled. A user can upload a real stop-area photo directly from the stop detail panel, and the app stores it locally in `data/raw/stop_images/` with manifest metadata such as stop ID, uploader name, note, and upload timestamp.
+
+Upload safety note:
+
+- local filesystem storage is intended for local/demo use
+- hosted deployments may lose these files unless persistent disk is configured
+- feature flag: `HEATSTOP_ENABLE_COMMUNITY_UPLOADS=1` (set to `0` to disable upload UI)
+- when a new community photo is uploaded for a stop, it becomes the preferred local image for that stop and is used by the visual analysis path
+- visual analysis always runs OpenCV heuristics; pretrained detector signals are included only if `HEATSTOP_ENABLE_PRETRAINED_VISION=1`
 
 Local files still take precedence over public imagery. To override the automatic fetcher, add real files to:
 
@@ -194,6 +222,46 @@ Weather metadata exposed in the UI:
 
 The live refresh remains corridor-level by design.
 
+## How the Corridor Intelligence panel works
+
+The `Corridor Intelligence` panel is not a separate scoring model. It is a reasoning layer on top of the already computed stop scores and vulnerability joins.
+
+Pipeline steps:
+
+1. **Use scored stop rows already in memory**
+   - The UI passes the active corridor stop table to `generate_corridor_intelligence(...)`.
+   - If field-review display overrides are present for the selected view, the intelligence layer prefers `display_*` columns; otherwise it falls back to raw scored columns.
+
+2. **Compute corridor evidence**
+   - The app computes corridor-level aggregates such as:
+     - unsheltered percentage
+     - top-5 burden share
+     - dominant score contributors
+     - top segment by total burden
+     - top burden stops with their action summaries
+   - Segments are derived by ordering stops along the route and splitting into three route-position buckets, then labeled as southern/central/northern (or western/central/eastern) based on corridor orientation.
+
+3. **Join vulnerability proxies**
+   - Stops are enriched with nearby hospitals, senior centers, and schools.
+   - A rule-based severity pass identifies where elevated stop risk overlaps with vulnerable uses under current heat conditions.
+
+4. **Run three scoped agents (with strict schemas)**
+   - **Corridor Analyst Agent** summarizes burden patterns.
+   - **Vulnerability Agent** summarizes overlap findings and severity.
+   - **Action Planning Agent** recommends intervention mix and priority segment.
+   - Each agent only receives structured evidence and must return schema-constrained JSON.
+
+5. **Fallback if no LLM output**
+   - If provider keys are missing or generation fails, deterministic fallback logic builds the same sections from computed evidence.
+   - The UI still renders and labels the source in `Reasoning`.
+
+What this means in practice:
+
+- `Unsheltered: 47%` and `Top 5 burden share: 52%` come from direct aggregate math on the corridor stop table.
+- `Priority segment: Southern segment` comes from segment burden ranking.
+- Bulleted stop lines in the vulnerability card come from enriched stop rows that met overlap thresholds.
+- The planning memo is a synthesis over top stop actions + segment burden + vulnerability overlap count.
+
 ## Planner notes
 
 Planner notes stay grounded in the transparent scoring system.
@@ -234,7 +302,7 @@ Important:
 
 - the transparent stop score remains the source of truth
 - the agents interpret existing real corridor evidence
-- the agents do not invent stops, clusters, vulnerability, or weather
+- the agents do not invent stops, segments, vulnerability, or weather
 
 ### Agent workflow
 
@@ -248,7 +316,7 @@ Important:
 - outputs:
   - corridor summary
   - dominant drivers
-  - top risk cluster / segment
+  - top risk segment
   - signature insight
   - severity label
 
@@ -293,14 +361,42 @@ If no OpenAI key is configured, the app still runs the same three-step workflow 
 
 The UI shape stays the same whether the reasoning source is OpenAI or deterministic fallback.
 
+## Nearby Relief Copilot
+
+The dashboard now includes a rider-facing `Nearby Relief Copilot` section. It is separate from the city-planning panels and uses the selected stop plus live waiting context to answer:
+
+- should I stay near this stop?
+- is there a safer nearby place to wait?
+- is there a lower-exposure nearby stop on the same corridor?
+
+The copilot combines:
+
+1. the selected stop’s current HeatStop risk
+2. real-time MTA stop arrivals when available
+3. nearby relief places from OpenStreetMap / Overpass
+4. nearby lower-risk stop candidates from the existing corridor score output
+
+Important:
+
+- the deterministic waiting logic is the source of truth
+- the optional LLM layer only explains that grounded recommendation
+- if real-time ETA or nearby-place lookup fails, the UI falls back cleanly to stop risk guidance
+
 ## Computer vision approach
 
-The MVP intentionally uses lightweight, explainable heuristics instead of a heavy detection model:
+By default, the MVP runs lightweight, explainable OpenCV heuristics (deployment-safe baseline):
 
 - green HSV mask -> visible tree ratio
 - upper-frame sky / bright mask -> open-sky ratio
 - top-frame horizontal line density -> shelter estimate
 - lower-frame horizontal line density -> bench estimate
+
+Optional pretrained detector:
+
+- disabled by default: `HEATSTOP_ENABLE_PRETRAINED_VISION=0`
+- enable explicitly only when your environment can support model downloads/inference:
+  - `HEATSTOP_ENABLE_PRETRAINED_VISION=1`
+  - `HEATSTOP_PRETRAINED_VISION_MODEL=google/owlvit-base-patch32`
 
 Limitations:
 
@@ -343,7 +439,29 @@ export HEATSTOP_LLM_MODEL=gpt-4.1-mini
 export HEATSTOP_GEMINI_API_KEY=
 export HEATSTOP_GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 export HEATSTOP_GEMINI_MODEL=gemini-2.0-flash
+export HEATSTOP_MTA_BUS_TIME_API_KEY=
+export HEATSTOP_MTA_BUS_TIME_BASE_URL=https://bustime.mta.info/api/siri/stop-monitoring.json
+export HEATSTOP_RELIEF_PLACES_BASE_URL=https://overpass-api.de/api/interpreter
+export HEATSTOP_RELIEF_SEARCH_RADIUS_M=400
+export HEATSTOP_RELIEF_MAX_RESULTS=8
+export HEATSTOP_RIDER_WALKING_SPEED_M_PER_MIN=80
+export HEATSTOP_LOWER_RISK_STOP_RADIUS_M=500
+export HEATSTOP_LOWER_RISK_STOP_MIN_RISK_DROP=12
 ```
+
+Deployment-safety env vars:
+
+```bash
+export HEATSTOP_ENABLE_PRETRAINED_VISION=0
+export HEATSTOP_ENABLE_COMMUNITY_UPLOADS=1
+export HEATSTOP_CORS_ALLOW_ORIGINS=http://localhost:8501,http://127.0.0.1:8501
+export HEATSTOP_CORS_ALLOW_CREDENTIALS=0
+```
+
+Notes:
+
+- CORS defaults to local Streamlit origins instead of `*`.
+- Community uploads write to local disk and may not persist on ephemeral hosting unless persistent storage is configured.
 
 ## Build the real dataset
 
@@ -399,6 +517,11 @@ In the dashboard:
 2. Click `Refresh Weather`.
 3. Wait for the live NWS snapshot and rescored corridor results.
 4. Inspect a stop to see the updated note source, observed conditions, risk drivers, and refreshed weather metadata.
+5. Use `Nearby Relief Copilot` to fetch:
+- the next live bus arrival
+- nearby safer places to wait
+- a lower-risk nearby stop candidate when one is practical
+6. Ask the copilot a rider question such as `Should I stay here or wait somewhere cooler?`
 
 Single-process local run that matches production:
 
@@ -424,6 +547,12 @@ HEATSTOP_BUILD_ON_START=1 HEATSTOP_BOOT_CORRIDORS='M15:0,M15-SBS:0,M101:0' ./scr
 6. Optionally set `HEATSTOP_MAPILLARY_ACCESS_TOKEN` in Render for your own Mapillary quota.
 7. After deploy, Render will give the app a stable `https://<service>.onrender.com` URL. You can later attach a custom domain from the Render dashboard.
 
+Current `render.yaml` safety defaults:
+
+- `HEATSTOP_ENABLE_PRETRAINED_VISION=0` (heuristic-only baseline)
+- `HEATSTOP_ENABLE_COMMUNITY_UPLOADS=0` (upload UI hidden unless explicitly enabled)
+- `HEATSTOP_CORS_ALLOW_ORIGINS` is explicitly set instead of wildcard CORS
+
 Notes:
 
 - The default Blueprint uses the `starter` plan because it is more stable than a sleeping free service for live demos.
@@ -437,6 +566,7 @@ Notes:
 - `GET /meta`
 - `GET /stops`
 - `GET /stops/{stop_id}`
+- `GET /stops/{stop_id}/rider-support`
 - `POST /weather/refresh`
 - `GET /geojson`
 
@@ -453,6 +583,10 @@ Action: swap the source URLs and field mappings in `app/ingest.py` and `app/data
 3. `LLM provider key`
 Reason: the repo now supports a real LLM planner-note layer, but it is optional.
 Action: set `HEATSTOP_OPENAI_API_KEY` if you want live LLM planner notes instead of deterministic fallback notes.
+
+4. `MTA Bus Time API key`
+Reason: rider ETA guidance depends on the official live stop-monitoring feed.
+Action: set `HEATSTOP_MTA_BUS_TIME_API_KEY` if you want real-time arrivals inside `Nearby Relief Copilot`.
 
 ## Engineering notes
 

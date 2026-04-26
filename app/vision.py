@@ -38,7 +38,7 @@ def _find_image_path(stop_id: str, images_dir: Path) -> Path | None:
 @lru_cache(maxsize=1)
 def _load_pretrained_detector() -> tuple[object | None, str]:
     if not settings.enable_pretrained_vision:
-        return None, "pretrained vision disabled"
+        return None, "pretrained detector disabled (heuristic-only mode)"
     try:
         from transformers import pipeline
 
@@ -106,7 +106,7 @@ def _analyze_image_cached(image_path_str: str, modified_at: float) -> dict:
             "image_path": str(image_path),
             "vision_error": "OpenCV could not read the image.",
             "vision_model_name": settings.pretrained_vision_model if settings.enable_pretrained_vision else None,
-            "vision_model_status": "image unreadable",
+            "vision_model_status": "image unreadable (OpenCV failed)",
             "shelter_model_detected": None,
             "shelter_model_confidence": None,
             "bench_model_detected": None,
@@ -234,7 +234,7 @@ def analyze_stop_images(stops_df: pd.DataFrame, images_dir: Path | None = None) 
                     "model_detection_summary": None,
                     "vision_method": None,
                     "vision_model_name": settings.pretrained_vision_model if settings.enable_pretrained_vision else None,
-                    "vision_model_status": "image unavailable",
+                    "vision_model_status": "image unavailable (heuristic analysis skipped)",
                     "vision_error": "image unavailable",
                 }
             )

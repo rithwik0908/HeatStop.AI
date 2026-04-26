@@ -9,18 +9,22 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.config import IMAGES_DIR
+from app.config import IMAGES_DIR, settings
 from app.data_sources import MANUAL_INPUTS, serialize_sources
 from app.ingest import PROCESSED_DIR, list_processed_corridors, load_processed_outputs, refresh_corridor_weather_scores
+from app.nearby_relief import fetch_nearby_relief_places
 from app.planner import build_planner_note, recommend_action_summary
+from app.realtime_arrivals import fetch_stop_arrivals
 from app.weather import weather_summary_from_frame
 
 
 app = FastAPI(title="HeatStop AI API", version="0.1.0")
+allow_origins = settings.cors_allow_origins or ["http://localhost:8501", "http://127.0.0.1:8501"]
+allow_credentials = settings.cors_allow_credentials and "*" not in allow_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=allow_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -78,6 +82,7 @@ def root() -> dict:
             "meta": "/meta",
             "stops": "/stops",
             "refresh_weather": "/weather/refresh",
+            "rider_support": "/stops/{stop_id}/rider-support",
             "geojson": "/geojson",
             "docs": "/docs",
         },
@@ -144,6 +149,36 @@ def refresh_weather(corridor_id: str | None = None) -> dict:
         "items": _clean_records(df),
         "meta": enriched_meta,
         "weather": enriched_meta.get("weather", {}),
+    }
+
+
+@app.get("/stops/{stop_id}/rider-support")
+def get_rider_support(stop_id: str, corridor_id: str | None = None) -> dict:
+    df, meta = load_processed_outputs(corridor_id=corridor_id)
+    if df.empty:
+        raise HTTPException(status_code=404, detail="Processed dataset not found.")
+    match = df.loc[df["stop_id"].astype(str) == str(stop_id)]
+    if match.empty:
+        raise HTTPException(status_code=404, detail=f"Stop `{stop_id}` not found.")
+
+    row = _clean_records(match)[0]
+    stop_lat = float(row["stop_lat"])
+    stop_lon = float(row["stop_lon"])
+    arrivals = fetch_stop_arrivals(str(stop_id), route_short_name=row.get("route_short_name"))
+    relief_places = fetch_nearby_relief_places(stop_lat, stop_lon)
+    return {
+        "stop": {
+            "stop_id": str(row["stop_id"]),
+            "stop_name": row.get("stop_name"),
+            "route_short_name": row.get("route_short_name"),
+            "direction_id": row.get("direction_id"),
+            "stop_lat": stop_lat,
+            "stop_lon": stop_lon,
+            "corridor_id": meta.get("corridor_id"),
+        },
+        "arrivals": arrivals,
+        "nearby_relief": relief_places,
+        "meta": {"corridor_id": meta.get("corridor_id")},
     }
 
 
