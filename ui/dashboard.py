@@ -1011,7 +1011,7 @@ def corridor_insight(stops: pd.DataFrame) -> str:
     if len(top_factors) == 1:
         return f"Most corridor exposure risk is driven by {top_factors[0].lower()}."
     if len(top_factors) == 2:
-        return f"Most corridor exposure risk clusters around {top_factors[0].lower()} and {top_factors[1].lower()}."
+        return f"Most corridor exposure risk is concentrated around {top_factors[0].lower()} and {top_factors[1].lower()}."
     return (
         f"Most corridor exposure risk is concentrated at stops with {top_factors[0].lower()}, "
         f"{top_factors[1].lower()}, and {top_factors[2].lower()}."
@@ -1194,7 +1194,7 @@ def render_corridor_intelligence(intelligence: dict) -> None:
                 str(analyst.get("severity_label", "n/a")),
                 [
                     str(analyst.get("corridor_summary", "No corridor summary available.")),
-                    f"Top cluster: {analyst.get('top_cluster', 'n/a')}",
+                    f"Top segment: {analyst.get('top_segment', 'n/a')}",
                     f"Signature insight: {analyst.get('signature_insight', 'n/a')}",
                 ],
                 [str(item) for item in analyst.get("dominant_drivers", [])],
@@ -1294,6 +1294,9 @@ def image_metadata_chips(stop: dict, local_record: dict | None) -> str:
 
 
 def render_upload_form(stop: dict) -> None:
+    if not settings.enable_community_uploads:
+        st.info("Community uploads are disabled for this deployment.")
+        return
     latest_upload = latest_community_upload_for_stop(str(stop["stop_id"]))
     st.markdown(
         """
@@ -1306,6 +1309,9 @@ def render_upload_form(stop: dict) -> None:
         </div>
         """,
         unsafe_allow_html=True,
+    )
+    st.caption(
+        "Community uploads are stored on local filesystem for this demo and may not persist in hosted deployments without persistent storage."
     )
     if latest_upload is not None and pd.notna(latest_upload.get("uploaded_at_ts")):
         next_allowed_at = latest_upload["uploaded_at_ts"] + pd.Timedelta(hours=24)
@@ -1563,13 +1569,14 @@ def render_stop_intelligence(stop: dict, corridor_stops: pd.DataFrame | None = N
             if stop.get("vision_model_name") or stop.get("vision_model_status"):
                 model_rows = pd.DataFrame(
                     [
-                        {"signal": "Pretrained vision model", "value": stop.get("vision_model_name"), "status": stop.get("vision_model_status")},
+                        {"signal": "Vision mode", "value": stop.get("vision_method"), "status": stop.get("vision_model_status")},
+                        {"signal": "Pretrained detector", "value": stop.get("vision_model_name") or "Disabled (heuristic-only mode)", "status": stop.get("vision_model_status")},
                         {"signal": "Shelter model detection", "value": bool_label(stop.get("shelter_model_detected")), "status": stop.get("shelter_model_confidence")},
                         {"signal": "Bench model detection", "value": bool_label(stop.get("bench_model_detected")), "status": stop.get("bench_model_confidence")},
-                        {"signal": "Detection summary", "value": stop.get("model_detection_summary"), "status": stop.get("vision_method")},
+                        {"signal": "Detection summary", "value": stop.get("model_detection_summary"), "status": ""},
                     ]
                 )
-                st.markdown("<div class='section-kicker' style='margin-top:1rem;'>Pretrained vision pass</div>", unsafe_allow_html=True)
+                st.markdown("<div class='section-kicker' style='margin-top:1rem;'>Vision processing status</div>", unsafe_allow_html=True)
                 st.dataframe(model_rows, use_container_width=True, hide_index=True)
 
             feature_rows = pd.DataFrame(
@@ -1898,7 +1905,7 @@ def main() -> None:
                   <div class="section-title">Risk Landscape</div>
                 </div>
                 <div class="section-text">
-                  Scan the corridor to see where exposure clusters and where the selected stop sits inside the wider heat-response pattern.
+                  Scan the corridor to see where exposure concentrates by segment and where the selected stop sits inside the wider heat-response pattern.
                 </div>
               </div>
             </div>

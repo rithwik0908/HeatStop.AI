@@ -20,6 +20,11 @@ DEFAULT_SCORE_WEIGHTS = {
 }
 
 
+def _csv_env(name: str, default: str) -> list[str]:
+    raw = os.getenv(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 @dataclass
 class Settings:
     city_name: str = os.getenv("HEATSTOP_CITY_NAME", "New York City")
@@ -37,9 +42,17 @@ class Settings:
     public_imagery_radius_m: float = float(os.getenv("HEATSTOP_PUBLIC_IMAGERY_RADIUS_M", "35"))
     mapillary_access_token: str = os.getenv("HEATSTOP_MAPILLARY_ACCESS_TOKEN", "")
     use_mapillary_demo_token: bool = os.getenv("HEATSTOP_USE_MAPILLARY_DEMO_TOKEN", "1").lower() in {"1", "true", "yes"}
-    enable_pretrained_vision: bool = os.getenv("HEATSTOP_ENABLE_PRETRAINED_VISION", "1").lower() in {"1", "true", "yes"}
+    enable_pretrained_vision: bool = os.getenv("HEATSTOP_ENABLE_PRETRAINED_VISION", "0").lower() in {"1", "true", "yes"}
     pretrained_vision_model: str = os.getenv("HEATSTOP_PRETRAINED_VISION_MODEL", "google/owlvit-base-patch32")
     pretrained_vision_threshold: float = float(os.getenv("HEATSTOP_PRETRAINED_VISION_THRESHOLD", "0.12"))
+    enable_community_uploads: bool = os.getenv("HEATSTOP_ENABLE_COMMUNITY_UPLOADS", "1").lower() in {"1", "true", "yes"}
+    cors_allow_origins: list[str] = field(
+        default_factory=lambda: _csv_env(
+            "HEATSTOP_CORS_ALLOW_ORIGINS",
+            "http://localhost:8501,http://127.0.0.1:8501",
+        )
+    )
+    cors_allow_credentials: bool = os.getenv("HEATSTOP_CORS_ALLOW_CREDENTIALS", "0").lower() in {"1", "true", "yes"}
     backend_host: str = os.getenv("HEATSTOP_BACKEND_HOST", "0.0.0.0")
     backend_port: int = int(os.getenv("HEATSTOP_BACKEND_PORT", "8000"))
     api_url: str = os.getenv("HEATSTOP_API_URL", "http://localhost:8000")
