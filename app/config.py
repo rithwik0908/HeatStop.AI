@@ -51,6 +51,20 @@ class Settings:
     gemini_api_key: str = os.getenv("HEATSTOP_GEMINI_API_KEY", "")
     gemini_base_url: str = os.getenv("HEATSTOP_GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
     gemini_model: str = os.getenv("HEATSTOP_GEMINI_MODEL", "gemini-2.0-flash")
+    mta_bus_time_api_key: str = os.getenv("HEATSTOP_MTA_BUS_TIME_API_KEY", "")
+    mta_bus_time_base_url: str = os.getenv(
+        "HEATSTOP_MTA_BUS_TIME_BASE_URL",
+        "https://bustime.mta.info/api/siri/stop-monitoring.json",
+    )
+    relief_places_base_url: str = os.getenv(
+        "HEATSTOP_RELIEF_PLACES_BASE_URL",
+        "https://overpass-api.de/api/interpreter",
+    )
+    relief_search_radius_m: int = int(os.getenv("HEATSTOP_RELIEF_SEARCH_RADIUS_M", "400"))
+    relief_max_results: int = int(os.getenv("HEATSTOP_RELIEF_MAX_RESULTS", "8"))
+    rider_walking_speed_m_per_min: float = float(os.getenv("HEATSTOP_RIDER_WALKING_SPEED_M_PER_MIN", "80"))
+    lower_risk_stop_radius_m: int = int(os.getenv("HEATSTOP_LOWER_RISK_STOP_RADIUS_M", "500"))
+    lower_risk_stop_min_risk_drop: float = float(os.getenv("HEATSTOP_LOWER_RISK_STOP_MIN_RISK_DROP", "12"))
     score_weights: dict[str, float] = field(default_factory=lambda: DEFAULT_SCORE_WEIGHTS.copy())
 
 
