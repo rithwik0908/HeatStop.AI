@@ -106,7 +106,15 @@ The app only uses free, traceable imagery sources for stop photos:
 
 If no reliable free geolocated image exists, the detail card will say `image unavailable`.
 
-The dashboard now includes a community-photo upload flow for image-missing stops. A user can upload a real stop-area photo directly from the stop detail panel, and the app stores it locally in `data/raw/stop_images/` with manifest metadata such as stop ID, uploader name, note, and upload timestamp.
+The dashboard includes a community-photo upload flow for image-missing stops when enabled. A user can upload a real stop-area photo directly from the stop detail panel, and the app stores it locally in `data/raw/stop_images/` with manifest metadata such as stop ID, uploader name, note, and upload timestamp.
+
+Upload safety note:
+
+- local filesystem storage is intended for local/demo use
+- hosted deployments may lose these files unless persistent disk is configured
+- feature flag: `HEATSTOP_ENABLE_COMMUNITY_UPLOADS=1` (set to `0` to disable upload UI)
+- when a new community photo is uploaded for a stop, it becomes the preferred local image for that stop and is used by the visual analysis path
+- visual analysis always runs OpenCV heuristics; pretrained detector signals are included only if `HEATSTOP_ENABLE_PRETRAINED_VISION=1`
 
 Local files still take precedence over public imagery. To override the automatic fetcher, add real files to:
 
@@ -194,6 +202,46 @@ Weather metadata exposed in the UI:
 
 The live refresh remains corridor-level by design.
 
+## How the Corridor Intelligence panel works
+
+The `Corridor Intelligence` panel is not a separate scoring model. It is a reasoning layer on top of the already computed stop scores and vulnerability joins.
+
+Pipeline steps:
+
+1. **Use scored stop rows already in memory**
+   - The UI passes the active corridor stop table to `generate_corridor_intelligence(...)`.
+   - If field-review display overrides are present for the selected view, the intelligence layer prefers `display_*` columns; otherwise it falls back to raw scored columns.
+
+2. **Compute corridor evidence**
+   - The app computes corridor-level aggregates such as:
+     - unsheltered percentage
+     - top-5 burden share
+     - dominant score contributors
+     - top segment by total burden
+     - top burden stops with their action summaries
+   - Segments are derived by ordering stops along the route and splitting into three route-position buckets, then labeled as southern/central/northern (or western/central/eastern) based on corridor orientation.
+
+3. **Join vulnerability proxies**
+   - Stops are enriched with nearby hospitals, senior centers, and schools.
+   - A rule-based severity pass identifies where elevated stop risk overlaps with vulnerable uses under current heat conditions.
+
+4. **Run three scoped agents (with strict schemas)**
+   - **Corridor Analyst Agent** summarizes burden patterns.
+   - **Vulnerability Agent** summarizes overlap findings and severity.
+   - **Action Planning Agent** recommends intervention mix and priority segment.
+   - Each agent only receives structured evidence and must return schema-constrained JSON.
+
+5. **Fallback if no LLM output**
+   - If provider keys are missing or generation fails, deterministic fallback logic builds the same sections from computed evidence.
+   - The UI still renders and labels the source in `Reasoning`.
+
+What this means in practice:
+
+- `Unsheltered: 47%` and `Top 5 burden share: 52%` come from direct aggregate math on the corridor stop table.
+- `Priority segment: Southern segment` comes from segment burden ranking.
+- Bulleted stop lines in the vulnerability card come from enriched stop rows that met overlap thresholds.
+- The planning memo is a synthesis over top stop actions + segment burden + vulnerability overlap count.
+
 ## Planner notes
 
 Planner notes stay grounded in the transparent scoring system.
@@ -234,7 +282,7 @@ Important:
 
 - the transparent stop score remains the source of truth
 - the agents interpret existing real corridor evidence
-- the agents do not invent stops, clusters, vulnerability, or weather
+- the agents do not invent stops, segments, vulnerability, or weather
 
 ### Agent workflow
 
@@ -248,7 +296,7 @@ Important:
 - outputs:
   - corridor summary
   - dominant drivers
-  - top risk cluster / segment
+  - top risk segment
   - signature insight
   - severity label
 
@@ -295,12 +343,19 @@ The UI shape stays the same whether the reasoning source is OpenAI or determinis
 
 ## Computer vision approach
 
-The MVP intentionally uses lightweight, explainable heuristics instead of a heavy detection model:
+By default, the MVP runs lightweight, explainable OpenCV heuristics (deployment-safe baseline):
 
 - green HSV mask -> visible tree ratio
 - upper-frame sky / bright mask -> open-sky ratio
 - top-frame horizontal line density -> shelter estimate
 - lower-frame horizontal line density -> bench estimate
+
+Optional pretrained detector:
+
+- disabled by default: `HEATSTOP_ENABLE_PRETRAINED_VISION=0`
+- enable explicitly only when your environment can support model downloads/inference:
+  - `HEATSTOP_ENABLE_PRETRAINED_VISION=1`
+  - `HEATSTOP_PRETRAINED_VISION_MODEL=google/owlvit-base-patch32`
 
 Limitations:
 
@@ -344,6 +399,20 @@ export HEATSTOP_GEMINI_API_KEY=
 export HEATSTOP_GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 export HEATSTOP_GEMINI_MODEL=gemini-2.0-flash
 ```
+
+Deployment-safety env vars:
+
+```bash
+export HEATSTOP_ENABLE_PRETRAINED_VISION=0
+export HEATSTOP_ENABLE_COMMUNITY_UPLOADS=1
+export HEATSTOP_CORS_ALLOW_ORIGINS=http://localhost:8501,http://127.0.0.1:8501
+export HEATSTOP_CORS_ALLOW_CREDENTIALS=0
+```
+
+Notes:
+
+- CORS defaults to local Streamlit origins instead of `*`.
+- Community uploads write to local disk and may not persist on ephemeral hosting unless persistent storage is configured.
 
 ## Build the real dataset
 
@@ -423,6 +492,12 @@ HEATSTOP_BUILD_ON_START=1 HEATSTOP_BOOT_CORRIDORS='M15:0,M15-SBS:0,M101:0' ./scr
 5. Keep the default `HEATSTOP_BUILD_ON_START=0` for the fastest and most stable startup.
 6. Optionally set `HEATSTOP_MAPILLARY_ACCESS_TOKEN` in Render for your own Mapillary quota.
 7. After deploy, Render will give the app a stable `https://<service>.onrender.com` URL. You can later attach a custom domain from the Render dashboard.
+
+Current `render.yaml` safety defaults:
+
+- `HEATSTOP_ENABLE_PRETRAINED_VISION=0` (heuristic-only baseline)
+- `HEATSTOP_ENABLE_COMMUNITY_UPLOADS=0` (upload UI hidden unless explicitly enabled)
+- `HEATSTOP_CORS_ALLOW_ORIGINS` is explicitly set instead of wildcard CORS
 
 Notes:
 

@@ -22,6 +22,14 @@ services:
         value: "15"
       - key: HEATSTOP_ENABLE_PUBLIC_IMAGERY
         value: "1"
+      - key: HEATSTOP_ENABLE_PRETRAINED_VISION
+        value: "0"
+      - key: HEATSTOP_ENABLE_COMMUNITY_UPLOADS
+        value: "0"
+      - key: HEATSTOP_CORS_ALLOW_ORIGINS
+        value: "https://heatstop-ai.onrender.com,http://localhost:8501,http://127.0.0.1:8501"
+      - key: HEATSTOP_CORS_ALLOW_CREDENTIALS
+        value: "0"
       - key: HEATSTOP_USE_MAPILLARY_DEMO_TOKEN
         value: "1"
       - key: HEATSTOP_MAPILLARY_ACCESS_TOKEN

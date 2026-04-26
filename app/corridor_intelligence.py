@@ -246,11 +246,11 @@ ANALYST_SCHEMA = {
     "properties": {
         "corridor_summary": {"type": "string"},
         "dominant_drivers": {"type": "array", "items": {"type": "string"}},
-        "top_cluster": {"type": "string"},
+        "top_segment": {"type": "string"},
         "signature_insight": {"type": "string"},
         "severity_label": {"type": "string", "enum": ["Low", "Medium", "High", "Critical"]},
     },
-    "required": ["corridor_summary", "dominant_drivers", "top_cluster", "signature_insight", "severity_label"],
+    "required": ["corridor_summary", "dominant_drivers", "top_segment", "signature_insight", "severity_label"],
     "additionalProperties": False,
 }
 
@@ -299,7 +299,7 @@ def _analyst_fallback(corridor: dict[str, Any]) -> dict[str, Any]:
     dominant = [_pretty_driver(item) for item in corridor.get("dominant_drivers", [])]
     unsheltered_pct = corridor.get("unsheltered_pct", 0.0)
     top5_share = corridor.get("top5_burden_share_pct", 0.0)
-    cluster = top_segment.get("segment_label", "corridor core")
+    segment = top_segment.get("segment_label", "corridor core")
     critical_count = corridor.get("critical_or_high_count", 0)
     severity = _risk_label(_safe_float(corridor.get("avg_relative_risk")))
     summary = (
@@ -308,12 +308,12 @@ def _analyst_fallback(corridor: dict[str, Any]) -> dict[str, Any]:
     )
     signature = (
         f"The top 5 stops account for {top5_share:.0f}% of total corridor priority burden, "
-        f"with the strongest concentration in the {cluster.lower()}."
+        f"with the strongest concentration in the {segment.lower()}."
     )
     return {
         "corridor_summary": summary,
         "dominant_drivers": dominant or ["Mixed corridor drivers"],
-        "top_cluster": f"{cluster} carries the highest total display burden in the current corridor view.",
+        "top_segment": f"{segment} carries the highest total display burden in the current corridor view.",
         "signature_insight": signature,
         "severity_label": severity,
         "source": llm_source_label(),
@@ -420,9 +420,9 @@ def _run_corridor_analyst_agent(corridor: dict[str, Any]) -> dict[str, Any]:
     system_prompt = (
         "You are the Corridor Analyst Agent for a transit heat resilience tool. "
         "Reason only from the provided structured corridor evidence. "
-        "Do not invent counts, percentages, clusters, or amenities. "
+        "Do not invent counts, percentages, segments, or amenities. "
         "Return concise planner-facing JSON. "
-        "Top cluster should identify the segment with the strongest burden pattern. "
+        "Top segment should identify the segment with the strongest burden pattern. "
         "Signature insight should be a memorable one-sentence quantified finding."
     )
     llm_output = generate_grounded_structured_output(
